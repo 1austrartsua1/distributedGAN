@@ -23,12 +23,7 @@ import torch.utils.data.distributed
 #from IPython.display import HTML
 
 # locals
-import sys
-sys.path.append("../../datasets")
-sys.path.append("../../distributed")
-
 from utils_distributed import av_param,av_grad,av_loss
-
 import randomDataLoaderv2 as rd
 
 from models import Generator

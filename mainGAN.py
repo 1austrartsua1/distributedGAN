@@ -9,11 +9,9 @@ import torch.multiprocessing as mp
 import torch.utils.data.distributed
 
 #locals
-import sys
-sys.path.append("../../distributed")
 from distributed import init_workers, try_barrier
 
-from distDCGAN import main_worker
+from distGAN import main_worker
 
 
 parser = argparse.ArgumentParser(description='Distributed skeleton (init worker)')
