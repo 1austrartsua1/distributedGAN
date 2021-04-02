@@ -83,6 +83,9 @@ def main_worker(global_rank, local_rank, world_size):
     # Beta1 hyperparam for Adam optimizers
     beta1 = 0.5
 
+    # simult: whether to use simultaneous or alternating GDA
+    simult = False
+
     # Number of GPUs available. Use 0 for CPU mode.
     ngpu = 1
 
@@ -204,11 +207,24 @@ def main_worker(global_rank, local_rank, world_size):
             fake = netG(noise)
             label.fill_(fake_label)
             # Classify all fake batch with D
-            output = netD(fake.detach()).view(-1)
+            if simult:
+                for p in netG.parameters():
+                    p.requires_grad = False
+
+                output = netD(fake).view(-1)
+            else:
+                output = netD(fake.detach()).view(-1)
+            
+
             # Calculate D's loss on the all-fake batch
             errD_fake = criterion(output, label)
             # Calculate the gradients for this batch
-            errD_fake.backward()
+
+            if simult:
+                errD_fake.backward(retain_graph=True)
+            else:
+                errD_fake.backward()
+
             D_G_z1 = output.sum()
             # Add the gradients from the all-real and all-fake batches
             errD = errD_real + errD_fake #XX should this be an average?
@@ -218,9 +234,6 @@ def main_worker(global_rank, local_rank, world_size):
 
             # average discriminator gradients across workers
             av_grad(netD,world_size)
-
-            # Update D
-            optimizerD.step()
 
             ############################
             # (2) Update G network: maximize log(D(G(z)))
@@ -232,18 +245,35 @@ def main_worker(global_rank, local_rank, world_size):
             # you would remove the "detach" above and simply change the label, then backprop to get
             # the gradients wrt netG
 
-            output = netD(fake).view(-1)
+            if simult:
+                for p in netG.parameters():
+                    p.requires_grad = True
+                for p in netD.parameters():
+                    p.requires_grad = False
+            else:
+                # Update D
+                optimizerD.step()
+                output = netD(fake).view(-1)
+
             # Calculate G's loss based on this output
             errG = criterion(output, label)
             # Calculate gradients for G
             errG.backward()
-            D_G_z2 = output.sum()
-            D_G_z2 = av_loss(D_G_z2, 1.0)
 
+            D_G_z2 = output.sum()
+            D_G_z2 = av_loss(D_G_z2, b_size)
+
+            # average G's gradients across workers
             av_grad(netG,world_size)
 
             # Update G
             optimizerG.step()
+
+            if simult:
+                # Update D
+                optimizerD.step()
+                for p in netD.parameters():
+                    p.requires_grad = True
 
             # Output training stats
             if (global_rank == 0) and (i % 50 == 0):
