@@ -11,9 +11,17 @@ def av_param(model,world_size):
 
 def av_grad(model, world_size):
 
-    for param in model.parameters():
-        dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-        param.grad.data /= world_size
+    #for param in model.parameters():
+    for name,param in model.named_parameters():
+        if param.grad is not None:
+            dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
+            param.grad.data /= world_size
+        else:
+            print("Got a gradient which is None:")
+            print(name)
+
+
+
 
 
 def av_loss(total_loss, n_samples):

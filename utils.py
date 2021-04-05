@@ -1,8 +1,12 @@
+import torch
 import torch.nn as nn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
+#locals
 import randomDataLoaderv2 as rd
+import models
+
 
 
 def get_models(which_model):
@@ -15,8 +19,12 @@ def get_models(which_model):
 
         ndf = 128
         batch_norm_d = False
-        gen = models.ResNet32Generator(nz, nc, ngf, batch_norm_g)
-        dis = models.ResNet32Discriminator(nc, 1, ndf, batch_norm_d)
+        netG = models.ResNet32Generator(nz, nc, ngf, batch_norm_g)
+        netD = models.ResNet32Discriminator(nc, 1, ndf, batch_norm_d)
+
+        netG.apply(weight_init_fbf_paper)
+        netD.apply(weight_init_fbf_paper)
+
     elif which_model == "dcgan_fbf_paper":
         nz = 128
         nc = 3
@@ -35,9 +43,6 @@ def get_models(which_model):
 
     else:
 
-        from models import Generator
-        from models import Discriminator
-
         # Number of channels in the training images. For color images this is 3
         nc = 3
 
@@ -50,24 +55,24 @@ def get_models(which_model):
         # Size of feature maps in discriminator
         ndf = 64
 
-        netG = Generator(nz, ngf, nc)
+        netG = models.pytorch_tutorialGenerator(nz, ngf, nc)
 
-        netD = Discriminator(ndf,nc)
+        netD = models.pytorch_tutorialDiscriminator(ndf,nc)
 
     return netG,netD,nz
 
-def get_criterion(which_criterion):
-    if which_criterion == "BCE":
-        criterion = nn.BCELoss()
-    elif(True):
-        pass
+def sampler(b_size,nz,sampler_option):
+
+    if sampler_option=="pytorch_tutorial":
+        noise = torch.randn(b_size, nz, 1, 1)
     else:
-        pass
-    return criterion
+        noise = torch.zeros((b_size,nz)).normal_()
+    return noise 
 
-
-def compute_gan_loss(loss_type,b_size,realOrFake):
+bce_criterion = nn.BCELoss()
+def compute_gan_loss(output,loss_type,b_size,realOrFake,genOrDis):
     if loss_type == "BCE":
+        criterion = bce_criterion
         # Establish convention for real and fake labels during training
         real_label = 1.
         fake_label = 0.
@@ -76,7 +81,19 @@ def compute_gan_loss(loss_type,b_size,realOrFake):
         else:
             label = torch.full((b_size,), fake_label, dtype=torch.float).cuda()
 
+        err = criterion(output, label)
 
+    elif loss_type == "wgan":
+        if (genOrDis=="gen") or (realOrFake=="real"):
+            err = - output.mean()
+        else:
+            #fake data passing to discriminator
+            err = output.mean()
+
+    else:
+        raise NotImplementedError()
+
+    return err
 
 def get_data(which_data):
 

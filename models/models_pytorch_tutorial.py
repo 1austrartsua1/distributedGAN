@@ -1,9 +1,9 @@
 import torch.nn as nn
 
 
-class Generator(nn.Module):
+class pytorch_tutorialGenerator(nn.Module):
     def __init__(self, nz, ngf, nc):
-        super(Generator, self).__init__()
+        super(pytorch_tutorialGenerator, self).__init__()
         self.main = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d( nz, ngf * 8, 4, 1, 0, bias=False),
@@ -30,9 +30,9 @@ class Generator(nn.Module):
     def forward(self, input):
         return self.main(input)
 
-class Discriminator(nn.Module):
+class pytorch_tutorialDiscriminator(nn.Module):
     def __init__(self, ndf, nc):
-        super(Discriminator, self).__init__()
+        super(pytorch_tutorialDiscriminator, self).__init__()
         self.main = nn.Sequential(
             # input is (nc) x 64 x 64
             nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),

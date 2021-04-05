@@ -1,12 +1,9 @@
-from __future__ import print_function
-#%matplotlib inline
 import argparse
 import os
 import random
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
 
@@ -19,17 +16,14 @@ import matplotlib.animation as animation
 # distributed packages
 import torch.utils.data.distributed
 
-
-#from IPython.display import HTML
-
 # locals
 from utils_distributed import av_param,av_grad,av_loss
-
+from utils import compute_gan_loss, sampler
 
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
-                dataset, nz, criterion):
+                dataset, nz, loss_type, sampler_option):
 
     # distributed stuff
     #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
@@ -95,19 +89,15 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     netD = netD.cuda()
 
-
     # Apply the weights_init function to randomly initialize all weights
     #  to mean=0, stdev=0.2.
 
+    # average parameters across workers so they all start with the same model
     av_param(netD,world_size)
-
-    # Initialize the loss on the GPU
-
-    criterion = criterion.cuda()
 
     # Create batch of latent vectors that we will use to visualize
     #  the progression of the generator
-    fixed_noise = torch.randn(64, nz, 1, 1).cuda()
+    fixed_noise = sampler(64,nz,sampler_option).cuda()
 
 
 
@@ -141,7 +131,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             # Forward pass real batch through D
             output = netD(real_cpu).view(-1)
             # Calculate loss on all-real batch
-            errD_real = criterion(output, label)
+            errD_real = compute_gan_loss(output,loss_type,b_size,"real","dis")
             # Calculate gradients for D in backward pass
             errD_real.backward()
 
@@ -149,12 +139,13 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
             D_x = av_loss(D_x, b_size)
 
+
             ## Train with all-fake batch
             # Generate batch of latent vectors
-            noise = torch.randn(b_size, nz, 1, 1).cuda()
+            noise = sampler(b_size,nz,sampler_option).cuda()
+
             # Generate fake image batch with G
             fake = netG(noise)
-            label.fill_(fake_label)
             # Classify all fake batch with D
             if simult:
                 for p in netG.parameters():
@@ -166,9 +157,9 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
 
             # Calculate D's loss on the all-fake batch
-            errD_fake = criterion(output, label)
-            # Calculate the gradients for this batch
+            errD_fake = compute_gan_loss(output,loss_type,b_size,"fake","dis")
 
+            # Calculate the gradients for this batch
             if simult:
                 errD_fake.backward(retain_graph=True)
             else:
@@ -188,7 +179,6 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             # (2) Update G network: maximize log(D(G(z)))
             ###########################
             netG.zero_grad()
-            label.fill_(real_label)  # fake labels are real for generator cost
             # Since we just updated D, in the alternating version (simult=False),
             # perform another forward pass of all-fake batch through D
             # in simultaneous GDA (simult=True), you don't need another forward pass
@@ -205,7 +195,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                 output = netD(fake).view(-1)
 
             # Calculate G's loss based on this output
-            errG = criterion(output, label)
+            # use real labels because generator wants to fool the discriminator
+            errG = compute_gan_loss(output,loss_type,b_size,"real","gen")
             # Calculate gradients for G
             errG.backward()
 

@@ -13,7 +13,7 @@ from distributed import init_workers
 
 from gda import main_worker
 
-from utils import get_models,get_data,get_criterion
+from utils import get_models,get_data
 
 
 
@@ -23,9 +23,10 @@ parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl
 
 def main():
     args = parser.parse_args()
-    which_data = "random"
-    which_model = "custom_dcgan"
-    which_criterion = "BCE"
+    which_data = "random" #celebra,cifar,random
+    which_model = "dcgan_fbf_paper" #resnet_fbf_paper,dcgan_fbf_paper,pytorch_tutorial
+    loss_type = "wgan" #BCE, wgan
+    sampler_option = "fbf_paper" #pytorch_tutorial, fbf_paper
 
     global_rank, world_size = init_workers(args.distributed_backend)
 
@@ -39,6 +40,11 @@ def main():
         print('WORLD SIZE:', world_size)
         print('The number of nodes : ', node_num)
         print('Device Count : ', torch.cuda.device_count())
+        print(f"which data: {which_data}")
+        print(f"which model: {which_model}")
+        print(f"loss type: {loss_type}")
+        print(f"sampler option: {sampler_option}")
+
 
     print('Local Rank : ', local_rank)
     print('Global Rank : ', global_rank)
@@ -46,10 +52,9 @@ def main():
 
     netG,netD,nz = get_models(which_model)
     dataset = get_data(which_data)
-    criterion = get_criterion(which_criterion)
 
     main_worker(global_rank,local_rank,world_size,netG,netD,
-                dataset,nz,criterion)
+                dataset,nz,loss_type,sampler_option)
 
 
 if __name__ == '__main__':
