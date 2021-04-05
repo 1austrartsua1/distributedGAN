@@ -9,8 +9,8 @@ import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
+
+
 import torchvision.utils as vutils
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,15 +24,12 @@ import torch.utils.data.distributed
 
 # locals
 from utils_distributed import av_param,av_grad,av_loss
-import randomDataLoaderv2 as rd
-
-from models import Generator
-from models import Discriminator
 
 
 
 
-def main_worker(global_rank, local_rank, world_size):
+def main_worker(global_rank, local_rank, world_size, netG, netD,
+                dataset, nz, criterion):
 
     # distributed stuff
     #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
@@ -49,30 +46,13 @@ def main_worker(global_rank, local_rank, world_size):
         random.seed(manualSeed)
         torch.manual_seed(manualSeed)
 
-    # Root directory for dataset
-    dataroot = "data_celeba"
+
 
     # Number of workers for dataloader
-    workers = 0
+    workers = 4
 
     # Batch size during training
     batch_size = 128
-
-    # Spatial size of training images. All images will be resized to this
-    # size using a transformer.
-    image_size = 64
-
-    # Number of channels in the training images. For color images this is 3
-    nc = 3
-
-    # Size of z latent vector (i.e. size of generator input)
-    nz = 100
-
-    # Size of feature maps in generator
-    ngf = 64
-
-    # Size of feature maps in discriminator
-    ndf = 64
 
     # Number of training epochs
     num_epochs = 5
@@ -84,31 +64,8 @@ def main_worker(global_rank, local_rank, world_size):
     beta1 = 0.5
 
     # simult: whether to use simultaneous or alternating GDA
-    simult = False
+    simult = False 
 
-    # Number of GPUs available. Use 0 for CPU mode.
-    ngpu = 1
-
-    # We can use an image folder dataset the way we have it setup.
-    # Create the dataset
-    randomData = True
-
-    if not randomData:
-        dataset = dset.ImageFolder(root=dataroot,
-                               transform=transforms.Compose([
-                                   transforms.Resize(image_size),
-                                   transforms.CenterCrop(image_size),
-                                   transforms.ToTensor(),
-                                   transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                               ]))
-
-    else:
-        dim1 = image_size
-        dim2 = image_size
-        numDataPoints = 1000
-        numLabels = 10
-
-        dataset = rd.RandomDataSet(dim1,dim2,numDataPoints,numLabels)
 
     # create the sampler used for distributed training
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, world_size, global_rank)
@@ -120,36 +77,33 @@ def main_worker(global_rank, local_rank, world_size):
 
     torch.cuda.set_device(local_rank)
 
-    def weights_init(m):
-        classname = m.__class__.__name__
-        if classname.find('Conv') != -1:
-            nn.init.normal_(m.weight.data, 0.0, 0.02)
-        elif classname.find('BatchNorm') != -1:
-            nn.init.normal_(m.weight.data, 1.0, 0.02)
-            nn.init.constant_(m.bias.data, 0)
 
 
-    # Create the generator
-    netG = Generator(ngpu,nz, ngf, nc).cuda()
+
+    # send the generator to GPU
+    netG = netG.cuda()
+
 
     #dist.barrier()
 
     # Apply the weights_init function to randomly initialize all weights
     #  to mean=0, stdev=0.2.
-    netG.apply(weights_init)
+
 
     #synchronize the model weights across devices
     av_param(netG,world_size)
 
-    netD = Discriminator(ngpu,ndf,nc).cuda()
+    netD = netD.cuda()
+
 
     # Apply the weights_init function to randomly initialize all weights
     #  to mean=0, stdev=0.2.
-    netD.apply(weights_init)
+
     av_param(netD,world_size)
 
-    # Initialize BCELoss function
-    criterion = nn.BCELoss().cuda()
+    # Initialize the loss on the GPU
+
+    criterion = criterion.cuda()
 
     # Create batch of latent vectors that we will use to visualize
     #  the progression of the generator
@@ -214,7 +168,7 @@ def main_worker(global_rank, local_rank, world_size):
                 output = netD(fake).view(-1)
             else:
                 output = netD(fake.detach()).view(-1)
-            
+
 
             # Calculate D's loss on the all-fake batch
             errD_fake = criterion(output, label)
