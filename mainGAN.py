@@ -45,7 +45,6 @@ def main():
 
 
     netG,netD,nz = get_models(which_model)
-
     dataset = get_data(which_data)
     criterion = get_criterion(which_criterion)
 

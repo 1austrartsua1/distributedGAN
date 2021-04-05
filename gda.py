@@ -64,7 +64,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     beta1 = 0.5
 
     # simult: whether to use simultaneous or alternating GDA
-    simult = False 
+    simult = False
 
 
     # create the sampler used for distributed training
@@ -109,9 +109,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     #  the progression of the generator
     fixed_noise = torch.randn(64, nz, 1, 1).cuda()
 
-    # Establish convention for real and fake labels during training
-    real_label = 1.
-    fake_label = 0.
+
 
     # Setup Adam optimizers for both G and D
     optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, 0.999))
@@ -140,15 +138,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             real_cpu = data[0].cuda(None,non_blocking=True)
             b_size = real_cpu.size(0)
 
-            label = torch.full((b_size,), real_label, dtype=torch.float).cuda()
             # Forward pass real batch through D
             output = netD(real_cpu).view(-1)
             # Calculate loss on all-real batch
             errD_real = criterion(output, label)
             # Calculate gradients for D in backward pass
             errD_real.backward()
-
-
 
             D_x = output.sum()
 
@@ -194,10 +189,9 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             ###########################
             netG.zero_grad()
             label.fill_(real_label)  # fake labels are real for generator cost
-            # Since we just updated D, perform another forward pass of all-fake batch through D
-            # in simultaneous GDA, you don't need another forward pass
-            # you would remove the "detach" above and simply change the label, then backprop to get
-            # the gradients wrt netG
+            # Since we just updated D, in the alternating version (simult=False),
+            # perform another forward pass of all-fake batch through D
+            # in simultaneous GDA (simult=True), you don't need another forward pass
 
             if simult:
                 for p in netG.parameters():
@@ -207,6 +201,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             else:
                 # Update D
                 optimizerD.step()
+                #pass the fake data through the updated discriminator
                 output = netD(fake).view(-1)
 
             # Calculate G's loss based on this output
