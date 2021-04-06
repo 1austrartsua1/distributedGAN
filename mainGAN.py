@@ -23,10 +23,11 @@ parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl
 
 def main():
     args = parser.parse_args()
-    which_data = "random" #celebra,cifar,random
+    which_data = "cifar" #celebra,cifar,random
     which_model = "dcgan_fbf_paper" #resnet_fbf_paper,dcgan_fbf_paper,pytorch_tutorial
     loss_type = "wgan" #BCE, wgan
     sampler_option = "fbf_paper" #pytorch_tutorial, fbf_paper
+    clip_amount = 0.01 #>0 or None to turn off
 
     global_rank, world_size = init_workers(args.distributed_backend)
 
@@ -34,9 +35,9 @@ def main():
     local_rank = global_rank % ranks_per_node
     node_num = world_size // ranks_per_node
 
+    results = {}
     if global_rank==0:
         print('pytorch version : ', torch.__version__)
-        print('cuDNN version : ', torch.backends.cudnn.version())
         print('WORLD SIZE:', world_size)
         print('The number of nodes : ', node_num)
         print('Device Count : ', torch.cuda.device_count())
@@ -44,7 +45,10 @@ def main():
         print(f"which model: {which_model}")
         print(f"loss type: {loss_type}")
         print(f"sampler option: {sampler_option}")
-
+        print(f"clip amount: {clip_amount}")
+        results['which_data']=which_data
+        results['which_model']=which_model
+        results['loss_type'] = loss_type
 
     print('Local Rank : ', local_rank)
     print('Global Rank : ', global_rank)
@@ -54,7 +58,7 @@ def main():
     dataset = get_data(which_data)
 
     main_worker(global_rank,local_rank,world_size,netG,netD,
-                dataset,nz,loss_type,sampler_option)
+                dataset,nz,loss_type,sampler_option,clip_amount,results)
 
 
 if __name__ == '__main__':

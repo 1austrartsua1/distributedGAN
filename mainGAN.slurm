@@ -1,15 +1,17 @@
 #!/bin/bash
-#SBATCH -J distGAN
-#SBATCH -N 2
+#SBATCH -J get_IS
+#SBATCH -N 1
 #SBATCH -C gpu
 #SBATCH --cpus-per-task=10
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=1
-#SBATCH --time 0:10:00
+#SBATCH --time 02:00:00
 #SBATCH --account=m1759
-#SBATCH -o distGAN.out
+#SBATCH -o get_IS.out
 
+# -N will change number of nodes
+# ntasks-per-node will change number of GPUS per node
 module load cgpu
 module load pytorch
 
-srun python mainGAN.py --distributed-backend 'nccl'
+srun python mainGAN.py  

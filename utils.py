@@ -2,8 +2,11 @@ import torch
 import torch.nn as nn
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
+import numpy as np
+import time
 
 #locals
+import inception_score as iscore
 import randomDataLoaderv2 as rd
 import models
 
@@ -67,7 +70,7 @@ def sampler(b_size,nz,sampler_option):
         noise = torch.randn(b_size, nz, 1, 1)
     else:
         noise = torch.zeros((b_size,nz)).normal_()
-    return noise 
+    return noise
 
 bce_criterion = nn.BCELoss()
 def compute_gan_loss(output,loss_type,b_size,realOrFake,genOrDis):
@@ -131,6 +134,29 @@ def get_data(which_data):
         dataset = rd.RandomDataSet(dim1,dim2,numDataPoints,numLabels)
 
     return dataset
+
+
+def clip(net,clip_amount):
+    if clip_amount is None:
+        return
+
+    for p in net.parameters():
+        p.data.clamp_(-clip_amount, clip_amount)
+
+
+def get_inception_score(n_samples,nz,netG):
+    all_samples = []
+    samples = torch.randn(n_samples, nz)
+    for i in range(0, n_samples, 100):
+        batch_samples = samples[i:i+100].cuda()
+        all_samples.append(netG(batch_samples).cpu().data.numpy())
+
+    all_samples = np.concatenate(all_samples, axis=0)
+    t0 = time.time()
+    out = iscore.inception_score(torch.from_numpy(all_samples), resize=True, cuda=True)[0]
+    t0 = time.time()-t0 
+    return out,t0
+
 
 
 def weight_init_fbf_paper(m):
