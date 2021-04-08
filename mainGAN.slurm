@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH -J get_IS
+#SBATCH -J long_IS
 #SBATCH -N 1
 #SBATCH -C gpu
 #SBATCH --cpus-per-task=10
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=1
-#SBATCH --time 02:00:00
+#SBATCH --time 03:59:00
 #SBATCH --account=m1759
-#SBATCH -o get_IS.out
+#SBATCH -o long_IS.out
 
 # -N will change number of nodes
 # ntasks-per-node will change number of GPUS per node

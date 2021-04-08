@@ -7,7 +7,8 @@ import torch.nn.parallel
 import torch.optim as optim
 import torch.utils.data
 import time
-
+from datetime import datetime
+import pickle
 
 import torchvision.utils as vutils
 import numpy as np
@@ -34,6 +35,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     #world_size is used in averaging gradients, dist train sampler
 
 
+
+    now=datetime.now()
+    dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
+
+
+    tstart = time.time()
     # Set random seed for reproducibility
     set_seed = False
     if set_seed:
@@ -46,13 +53,14 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
 
     # Number of workers for dataloader
-    workers = 4
+    workers = 1
 
     # Batch size during training
     batch_size = 64
 
     # Number of training epochs
-    num_epochs = 100
+    num_epochs = 400
+
 
     # Learning rate for optimizers
     lr_dis = 2e-4
@@ -157,7 +165,6 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             D_x = output.sum()
 
             D_x = av_loss(D_x, b_size)
-
 
             ## Train with all-fake batch
             # Generate batch of latent vectors
@@ -278,25 +285,20 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             tepoch = time.time()-tepoch
             print(f"epoch {epoch} time = {tepoch}")
 
-    if global_rank==0:
-        results['genUpdateStamps']=genUpdateStamps
-        results['eval_freq']=eval_freq
-        results['iscores']=iscores
-        results['timestamps']=timestamps[1:]
-        results['num_epochs']=num_epochs
-        results['G_losses']=G_losses
-        results['D_losses']=D_losses
-        results['sampler_option'] = sampler_option
-        results['clip_amount'] = clip_amount
-        results['epochStamps']=epochStamps
-        results['param_setting_str']=param_setting_str
 
-        import pickle
-        from datetime import datetime
+            results['genUpdateStamps']=genUpdateStamps
+            results['eval_freq']=eval_freq
+            results['iscores']=iscores
+            results['timestamps']=timestamps[1:]
+            results['num_epochs']=num_epochs
+            results['G_losses']=G_losses
+            results['D_losses']=D_losses
+            results['sampler_option'] = sampler_option
+            results['clip_amount'] = clip_amount
+            results['epochStamps']=epochStamps
+            results['param_setting_str']=param_setting_str
+            ttot = time.time() - tstart
+            results['total_running_time']=ttot
 
-        now=datetime.now()
-        dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
-
-
-        with open('results/results_'+dt_string, 'wb') as handle:
-            pickle.dump(results, handle)
+            with open('results/results_'+dt_string, 'wb') as handle:
+                pickle.dump(results, handle)

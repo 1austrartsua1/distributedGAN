@@ -31,11 +31,11 @@ def get_models(which_model):
     elif which_model == "dcgan_fbf_paper":
         nz = 128
         nc = 3
-        ngf = 128
+        ngf = 64
         batch_norm_g = True
 
-        ndf = 128
-        batch_norm_d = False
+        ndf = 64
+        batch_norm_d = True
 
         netG = models.DCGAN32Generator(nz, nc, ngf, batchnorm=batch_norm_g)
         netD = models.DCGAN32Discriminator(nc, 1, ndf, batchnorm=batch_norm_d)
@@ -154,7 +154,7 @@ def get_inception_score(n_samples,nz,netG):
     all_samples = np.concatenate(all_samples, axis=0)
     t0 = time.time()
     out = iscore.inception_score(torch.from_numpy(all_samples), resize=True, cuda=True)[0]
-    t0 = time.time()-t0 
+    t0 = time.time()-t0
     return out,t0
 
 
