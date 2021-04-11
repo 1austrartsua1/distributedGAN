@@ -11,10 +11,18 @@ import torch.utils.data.distributed
 #locals
 from distributed import init_workers
 
-from gda import main_worker
+
 
 from utils import get_models,get_data
 
+algorithm = "fbf"
+
+if algorithm == "fbf":
+    from fbf import main_worker
+elif algorithm == "gda":
+    from gda import main_worker
+else:
+    raise NotImplementedError()
 
 
 

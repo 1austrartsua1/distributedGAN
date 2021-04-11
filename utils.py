@@ -174,3 +174,22 @@ def weights_init_pytorch_tutorial(m):
         nn.init.constant_(m.bias.data, 0)
         netG.apply(weights_init_pytorch_tutorial)
         netD.apply(weights_init_pytorch_tutorial)
+
+
+class Minibatch:
+    def __init__(self,dataloader):
+        self.dataloader = dataloader
+        self.data_loader_iter = iter(self.dataloader)
+        self.epoch_progress = 0
+    def get(self):
+
+        try:
+            data = next(self.data_loader_iter)
+            self.epoch_progress += 1
+            newEpoch = False
+        except:
+            self.data_loader_iter = iter(self.dataloader)
+            data = next(self.data_loader_iter)
+            self.epoch_progress = 0
+            newEpoch = True
+        return data,newEpoch

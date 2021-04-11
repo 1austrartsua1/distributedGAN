@@ -3,7 +3,7 @@
 import pickle
 import matplotlib.pyplot as plt
 
-with open('results/results_07_04_2021::11:15:30', 'rb') as handle:
+with open('results/fbf_replicate1', 'rb') as handle:
     res = pickle.load(handle)
 
 print(res)

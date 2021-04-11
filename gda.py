@@ -95,13 +95,6 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     # send the generator to GPU
     netG = netG.cuda()
 
-
-    #dist.barrier()
-
-    # Apply the weights_init function to randomly initialize all weights
-    #  to mean=0, stdev=0.2.
-
-
     #synchronize the model weights across devices
     av_param(netG,world_size)
 
@@ -147,7 +140,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         for i, data in enumerate(dataloader, 0):
 
             ############################
-            # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
+            # (1) Update D network
             ###########################
             ## Train with all-real batch
             netD.zero_grad()
@@ -193,7 +186,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
             D_G_z1 = output.sum()
             # Add the gradients from the all-real and all-fake batches
-            errD = errD_real + errD_fake #XX should this be an average?
+            errD = errD_real + errD_fake
 
             errD = av_loss(errD, 1.0)
             D_G_z1 = av_loss(D_G_z1, b_size)
@@ -202,7 +195,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             av_grad(netD,world_size)
 
             ############################
-            # (2) Update G network: maximize log(D(G(z)))
+            # (2) Update G network
             ###########################
             netG.zero_grad()
             # Since we just updated D, in the alternating version (simult=False),
