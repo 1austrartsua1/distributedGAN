@@ -54,9 +54,14 @@ def main():
         print(f"loss type: {loss_type}")
         print(f"sampler option: {sampler_option}")
         print(f"clip amount: {clip_amount}")
+        print(f"algorithm: {algorithm}")
         results['which_data']=which_data
         results['which_model']=which_model
         results['loss_type'] = loss_type
+        results['algorithm'] = algorithm
+        results['world_size'] = world_size
+        results['node_num'] = node_num
+        results['torch_version'] = torch.__version__
 
     print('Local Rank : ', local_rank)
     print('Global Rank : ', global_rank)

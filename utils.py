@@ -4,6 +4,8 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import numpy as np
 import time
+import pickle
+
 
 #locals
 import inception_score as iscore
@@ -193,3 +195,68 @@ class Minibatch:
             self.epoch_progress = 0
             newEpoch = True
         return data,newEpoch
+
+
+class ProgressMeter:
+    def __init__(self,n_samples,nz,netG,num_epochs,dataloader,results,eval_freq,
+                 sampler_option,clip_amount,param_setting_str,dt_string,getInceptionScore):
+        self.n_samples = n_samples
+        self.nz = nz
+        self.netG = netG
+        self.num_epochs = num_epochs
+        self.lendataloader = len(dataloader)
+        self.results = results
+        self.results['eval_freq'] = eval_freq
+        self.results['sampler_option']=sampler_option
+        self.results['clip_amount'] = clip_amount
+        self.results['param_setting_str'] = param_setting_str
+        self.dt_string = dt_string
+        self.getInceptionScore = getInceptionScore
+
+
+        self.epoch_running_times = []
+        self.iscores = []
+        self.timestamps = [0.0]
+        self.forwardStepStamps = []
+        self.epochStamps = []
+        self.G_losses = []
+        self.D_losses = []
+
+        self.t0 = time.time()
+
+    def record(self,forward_steps,epoch,i,errD,errG,D_x,D_G_z1,D_G_z2):
+        self.t0 = time.time() - self.t0
+        if self.getInceptionScore:
+            iscore,t_iscore = get_inception_score(self.n_samples,self.nz,self.netG)
+        else:
+            iscore,t_iscore = -1,-1
+        self.iscores.append(iscore)
+        print(f"time to get IS: {t_iscore}")
+        print(f"time since last print out: {self.t0}")
+        self.timestamps.append(self.timestamps[-1]+self.t0)
+        self.forwardStepStamps.append(forward_steps)
+        self.epochStamps.append(epoch)
+        self.t0 = time.time()
+
+        print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f\t IS: %.4f'
+              % (epoch, self.num_epochs, i, self.lendataloader,
+                 errD, errG, D_x, D_G_z1, D_G_z2,self.iscores[-1]))
+
+        # Save Losses for plotting later
+        self.G_losses.append(errG)
+        self.D_losses.append(errD)
+
+    def save(self,ttot,tepoch):
+        self.epoch_running_times.append(tepoch)
+        self.results['epoch_running_times'] = self.epoch_running_times
+        self.results['forwardStepStamps']=self.forwardStepStamps
+        self.results['iscores']=self.iscores
+        self.results['timestamps']=self.timestamps[1:]
+        self.results['num_epochs']=self.num_epochs
+        self.results['G_losses']=self.G_losses
+        self.results['D_losses']=self.D_losses
+        self.results['epochStamps']=self.epochStamps
+        self.results['total_running_time']=ttot
+
+        with open('results/results_'+self.dt_string, 'wb') as handle:
+            pickle.dump(self.results, handle)
