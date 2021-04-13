@@ -258,5 +258,5 @@ class ProgressMeter:
         self.results['epochStamps']=self.epochStamps
         self.results['total_running_time']=ttot
 
-        with open('results/results_'+self.dt_string, 'wb') as handle:
+        with open('results/'+self.results['algorithm']+'/results_'+self.dt_string, 'wb') as handle:
             pickle.dump(self.results, handle)
