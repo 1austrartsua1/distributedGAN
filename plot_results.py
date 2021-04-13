@@ -3,14 +3,14 @@
 import pickle
 import matplotlib.pyplot as plt
 
-with open('results/fbf/results_12_04_2021::14:06:21', 'rb') as handle:
+with open('results/fbf/results_13_04_2021::06:41:56', 'rb') as handle:
     res = pickle.load(handle)
 
 print(f"total runtime = {res['total_running_time']/60:.4f} minutes")
 
 print(res)
 
-getScalingResults = False
+getScalingResults = True
 if getScalingResults:
     # weak scaling results
 
@@ -28,29 +28,29 @@ if getScalingResults:
     print(f"forwardStepsPerSecondPerGPU={forwardStepsPerSecondPerGPU}")
 
 
-plt.plot(res['timestamps'],res['iscores'],'o-')
+plt.plot(res['timestamps'],res['iscores'],'o-',label="batchsize=64*8 workers")
 plt.ylabel('IS')
 plt.xlabel('time (s)')
 plt.grid()
 
 
 
-plt.show()
+#plt.show()
 
-plt.plot(res['forwardStepStamps'],res['iscores'],'o-',label="batchsize=512")
-plt.ylabel('IS')
-plt.xlabel('num forward steps')
-
-print(res['forwardStepStamps'][:10])
-
-with open('results/fbf/fbf_replicate1', 'rb') as handle:
-    res = pickle.load(handle)
-
-plt.plot(res['genUpdateStamps'],res['iscores'],'o-',label="batchsize=64")
+#plt.plot(res['forwardStepStamps'],res['iscores'],'o-',label="batchsize=512")
 #plt.ylabel('IS')
-#plt.xlabel('time (s)')
-plt.grid()
-plt.legend()
-print(res['genUpdateStamps'][:10])
+#plt.xlabel('num forward steps')
 
-plt.show()
+if 1:
+
+    with open('results/fbf/fbf_replicate1', 'rb') as handle:
+        res = pickle.load(handle)
+
+    plt.plot(res['timestamps'],res['iscores'],'o-',label="batchsize=64")
+    #plt.ylabel('IS')
+    #plt.xlabel('time (s)')
+    plt.grid()
+    plt.legend()
+    plt.grid()
+
+    plt.show()

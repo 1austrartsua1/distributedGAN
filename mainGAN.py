@@ -17,7 +17,7 @@ from utils import get_models,get_data
 
 parser = argparse.ArgumentParser(description='Distributed GAN training')
 parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'], help='Specify the distributed backend to use',default='nccl')
-parser.add_argument('-a','--algorithm',choices=['fbf','gda'],default='fbf')
+parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad'],default='fbf')
 parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar')
 parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],default="dcgan_fbf_paper")
 parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan")
@@ -27,9 +27,11 @@ parser.add_argument('--clip_amount',default=0.01,type=float)
 args = parser.parse_args()
 
 if args.algorithm == "fbf":
-    from fbf import main_worker
+    from algorithms.fbf import main_worker
 elif args.algorithm == "gda":
-    from gda import main_worker
+    from algorithms.gda import main_worker
+elif args.algorithm == "extragrad":
+    from algorithms.extragrad import main_worker
 else:
     raise NotImplementedError()
 
