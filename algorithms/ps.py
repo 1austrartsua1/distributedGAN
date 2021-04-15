@@ -20,7 +20,8 @@ import torch.utils.data.distributed
 # locals
 from utils_distributed import av_param,av_grad,av_loss
 from utils import compute_gan_loss,sampler,clip,Minibatch,ProgressMeter
-from optim.OptimExtragrad import ExtraAdam
+#from optim.OptimExtragrad import ExtraAdam
+from optim.OptimPS import PS_Adam, PS_SGD
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
@@ -53,8 +54,11 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     num_epochs = 600
     num_iterations = float('inf')
     # Learning rate for optimizers
-    lr_dis = 2e-4
-    lr_gen = 2e-5
+    lr_dis_step = 2e-4
+    lr_gen_step = 2e-5
+    lr_dis_extrap = np.sqrt(lr_dis_step)
+    lr_gen_extrap = np.sqrt(lr_gen_step)
+    adam_updates = False
 
     # Beta1, beta2 hyperparam for Adam optimizers
     beta1 = 0.5
@@ -78,8 +82,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     getInceptionScore = True
     getFirstIS = False
 
-    param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},av_reduce:{av_reduce}"
-    param_setting_str += f"\nclip_on_extrapolate:{clip_on_extrapolate}"
+    param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step:.4f},lr_dis_extrap:{lr_dis_extrap:.4f},\n"
+    param_setting_str += f"lr_gen_step:{lr_gen_step:.4f},lr_gen_extrap:{lr_gen_extrap:.4f},beta1:{beta1},beta2:{beta2},\n"
+    param_setting_str += f"stale:{stale},workers:{workers},av_reduce:{av_reduce}\n"
+    param_setting_str += f"clip_on_extrapolate:{clip_on_extrapolate},adam_updates:{adam_updates}"
     if global_rank==0: print(param_setting_str)
 
     if av_reduce:
@@ -116,8 +122,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     fixed_noise = sampler(64,nz,sampler_option).cuda()
 
     # Setup Adam optimizers for both G and D
-    optimizerD = ExtraAdam(netD.parameters(), lr=lr_dis, betas=(beta1, beta2))
-    optimizerG = ExtraAdam(netG.parameters(), lr=lr_gen, betas=(beta1, beta2))
+    if adam_updates:
+        optimizerD = PS_Adam(netD.parameters(), lr_step=lr_dis_step,lr_extrap=lr_dis_extrap, betas=(beta1, beta2))
+        optimizerG = PS_Adam(netG.parameters(), lr_step=lr_gen_step,lr_extrap=lr_gen_extrap, betas=(beta1, beta2))
+    else:
+        optimizerD = PS_SGD(netD.parameters(), lr_step=lr_dis_step,lr_extrap=lr_dis_extrap)
+        optimizerG = PS_SGD(netG.parameters(), lr_step=lr_gen_step,lr_extrap=lr_gen_extrap)
 
     # Training Loop
     forward_steps = 0
@@ -217,7 +227,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
 
         if forward_steps%2 == 0:
-            
+
             #extrapolation
             # Update G
             optimizerG.extrapolate()

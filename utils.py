@@ -12,7 +12,12 @@ import inception_score as iscore
 import randomDataLoaderv2 as rd
 import models
 
+def calculate_frechet(images_fake,mu_real,std_real,model):
+    mu_2,std_2=calculate_activation_statistics(images_fake,model,cuda=None)
 
+     """get fretched distance"""
+     fid_value = calculate_frechet_distance(mu_1, std_1, mu_2, std_2)
+     return fid_value
 
 def get_models(which_model):
 

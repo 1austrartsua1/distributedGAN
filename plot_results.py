@@ -68,36 +68,27 @@ def get_a_plot(file,plotType,label):
     return
 
 
-get_a_plot("ps/ps1","forward","ps1")
-get_a_plot("ps/ps2","forward","ps2")
-get_a_plot("ps/ps4","forward","ps4")
-get_a_plot("ps/ps8","forward","ps8")
-plt.grid()
-plt.legend()
-plt.show()
 
 if __name__ == "__main__2":
-
-    get_a_plot("extragrad/extragrad8","time","extragrad-batchsize=8*64")
-    get_a_plot("fbf/fbf_distBigBatch1","time","fbf-batchsize=8*64")
-    get_a_plot("ps/ps8","time","ps-batchsize=8*64")
-    get_a_plot("fbf/fbf_replicate1","time","fbf-batchsize=1*64")
-    get_a_plot("ps/results_14_04_2021::07:12:54","time","ps-batchsize=1*64")
-    #get_a_plot("ps/results_14_04_2021::06:59:29","time","ps-batchsize=2*64-clip2")
-    get_a_plot("ps/ps4","time","ps-4")
-
-
-
-
+    get_a_plot("ps/ps1","time","ps1")
+    get_a_plot("ps/ps2","time","ps2")
+    get_a_plot("ps/ps4","time","ps4")
+    get_a_plot("ps/ps8","time","ps8")
+    get_a_plot("ps/ps_spAdam1","time","ps2spAdam")
+    get_a_plot("ps/ps_spAdam4","time","ps4spAdam")
 
 
     plt.grid()
     plt.legend()
     plt.show()
 
-    get_a_plot("extragrad/extragrad8","forward","extragrad-batchsize=8*64")
-    get_a_plot("fbf/fbf_distBigBatch1","forward","fbf-batchsize=8*64")
-    get_a_plot("ps/ps8","forward","ps-batchsize=8*64")
+if __name__ == "__main__":
+
+    get_a_plot("extragrad/extragrad8","time","extragrad-batchsize=8*64")
+    get_a_plot("fbf/fbf_distBigBatch1","time","fbf-batchsize=8*64")
+    get_a_plot("fbf/fbf_replicate1","time","fbf-batchsize=1*64")
+    get_a_plot("ps/ps2stepsizes","time","ps2stepsizes")
+    get_a_plot("ps/ps_spAdam8","time","ps8spAdam")
 
     plt.grid()
     plt.legend()

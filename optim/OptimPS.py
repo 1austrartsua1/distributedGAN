@@ -29,7 +29,7 @@ from torch.optim import Optimizer
 
 required = object()
 
-class Extragradient(Optimizer):
+class PS(Optimizer):
     """Base class for optimizers with extrapolation step.
 
         Arguments:
@@ -39,10 +39,10 @@ class Extragradient(Optimizer):
             options (used when a parameter group doesn't specify them).
     """
     def __init__(self, params, defaults):
-        super(Extragradient, self).__init__(params, defaults)
+        super(PS, self).__init__(params, defaults)
         self.params_copy = []
 
-    def update(self, p, group):
+    def update(self, p, group, update_type):
         raise NotImplementedError
 
     def extrapolate(self):
@@ -52,7 +52,7 @@ class Extragradient(Optimizer):
         is_empty = len(self.params_copy) == 0
         for group in self.param_groups:
             for p in group['params']:
-                u = self.update(p, group)
+                u = self.update(p, group, "extrap")
                 if is_empty:
                     # Save the current parameters for the update step.
                     # Several extrapolation step can be made before each update
@@ -81,7 +81,7 @@ class Extragradient(Optimizer):
         for group in self.param_groups:
             for p in group['params']:
                 i += 1
-                u = self.update(p, group)
+                u = self.update(p, group, "step")
                 if u is None:
                     continue
                 # Update the parameters saved during the extrapolation step
@@ -92,7 +92,7 @@ class Extragradient(Optimizer):
         self.params_copy = []
         return loss
 
-class ExtraSGD(Extragradient):
+class PS_SGD(PS):
     """Implements stochastic gradient descent with extrapolation step (optionally with momentum).
 
     Nesterov momentum is based on the formula from
@@ -101,14 +101,15 @@ class ExtraSGD(Extragradient):
     Args:
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups
-        lr (float): learning rate
+        lr_step (float): learning rate for the .step() update
+        lr_extrap (float): learning rate for the .extrapolate() update (by default equal to lr_step)
         momentum (float, optional): momentum factor (default: 0)
         weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
         dampening (float, optional): dampening for momentum (default: 0)
         nesterov (bool, optional): enables Nesterov momentum (default: False)
 
     Example:
-        >>> optimizer = torch.optim.ExtraSGD(model.parameters(), lr=0.1, momentum=0.9)
+        >>> optimizer = torch.optim.ExtraSGD(model.parameters(), lr_step=0.1, momentum=0.9)
         >>> optimizer.zero_grad()
         >>> loss_fn(model(input), target).backward()
         >>> optimizer.extrapolation()
@@ -140,88 +141,75 @@ class ExtraSGD(Extragradient):
 
         The Nesterov version is analogously modified.
     """
-    def __init__(self, params, lr=required, momentum=0, dampening=0,
-                 weight_decay=0, nesterov=False):
-        if lr is not required and lr < 0.0:
-            raise ValueError("Invalid learning rate: {}".format(lr))
-        if momentum < 0.0:
-            raise ValueError("Invalid momentum value: {}".format(momentum))
-        if weight_decay < 0.0:
-            raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+    def __init__(self, params, lr_step, lr_extrap=None):
+        if lr_step < 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr_step))
 
-        defaults = dict(lr=lr, momentum=momentum, dampening=dampening,
-                        weight_decay=weight_decay, nesterov=nesterov)
-        if nesterov and (momentum <= 0 or dampening != 0):
-            raise ValueError("Nesterov momentum requires a momentum and zero dampening")
-        super(ExtraSGD, self).__init__(params, defaults)
+        if lr_extrap is not None and lr_step < 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr_extrap))
+
+
+        if lr_extrap is None:
+            lr_extrap = lr_step
+        defaults = dict(lr_step=lr_step, lr_extrap=lr_extrap)
+
+        super(PS_SGD, self).__init__(params, defaults)
 
     def __setstate__(self, state):
-        super(SGD, self).__setstate__(state)
+        super(PS_SGD, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault('nesterov', False)
 
-    def update(self, p, group):
-        weight_decay = group['weight_decay']
-        momentum = group['momentum']
-        dampening = group['dampening']
-        nesterov = group['nesterov']
+    def update(self, p, group, update_type):
 
         if p.grad is None:
             return None
         d_p = p.grad.data
-        if weight_decay != 0:
-            d_p.add_(weight_decay, p.data)
-        if momentum != 0:
-            param_state = self.state[p]
-            if 'momentum_buffer' not in param_state:
-                buf = param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                buf.mul_(momentum).add_(d_p)
-            else:
-                buf = param_state['momentum_buffer']
-                buf.mul_(momentum).add_(1 - dampening, d_p)
-            if nesterov:
-                d_p = d_p.add(momentum, buf)
-            else:
-                d_p = buf
 
-        return -group['lr']*d_p
+        return -group['lr_'+update_type]*d_p
 
-class ExtraAdam(Extragradient):
+class PS_Adam(PS):
     """Implements the Adam algorithm with extrapolation step.
 
     Arguments:
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups
-        lr (float, optional): learning rate (default: 1e-3)
+        lr_step (float, optional): learning rate for the .step() update (default: 1e-3)
+        lr_extrap (float, optional):learning rate for the .extrap() update (default: lr_step)
         betas (Tuple[float, float], optional): coefficients used for computing
             running averages of gradient and its square (default: (0.9, 0.999))
         eps (float, optional): term added to the denominator to improve
             numerical stability (default: 1e-8)
-        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
         amsgrad (boolean, optional): whether to use the AMSGrad variant of this
             algorithm from the paper `On the Convergence of Adam and Beyond`_
     """
 
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
-                 weight_decay=0, amsgrad=False):
-        if not 0.0 <= lr:
-         raise ValueError("Invalid learning rate: {}".format(lr))
+    def __init__(self, params, lr_step=1e-3, lr_extrap=None, betas=(0.9, 0.999), eps=1e-8,
+                 amsgrad=False):
+        if not 0.0 <= lr_step:
+            raise ValueError("Invalid learning rate: {}".format(lr_step))
+        if (lr_extrap is not None) and (not 0.0 <= lr_extrap):
+            raise ValueError("Invalid learning rate: {}".format(lr_extrap))
         if not 0.0 <= eps:
-         raise ValueError("Invalid epsilon value: {}".format(eps))
+            raise ValueError("Invalid epsilon value: {}".format(eps))
         if not 0.0 <= betas[0] < 1.0:
-         raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
-         raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, eps=eps,
-                     weight_decay=weight_decay, amsgrad=amsgrad)
-        super(ExtraAdam, self).__init__(params, defaults)
+            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+
+        if lr_extrap is None:
+            lr_extrap = lr_step
+
+        defaults = dict(lr_step=lr_step,lr_extrap=lr_extrap, betas=betas, eps=eps,
+                        amsgrad=amsgrad)
+        super(PS_Adam, self).__init__(params, defaults)
 
     def __setstate__(self, state):
-        super(ExtraAdam, self).__setstate__(state)
+        super(PS_Adam, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault('amsgrad', False)
 
-    def update(self, p, group):
+    def update(self, p, group, update_type):
         if p.grad is None:
             return None
         grad = p.grad.data
@@ -232,25 +220,23 @@ class ExtraAdam(Extragradient):
         state = self.state[p]
 
         # State initialization
-        if len(state) == 0:
-            state['step'] = 0
+        if state.get('initialized_'+update_type) is None:
+            state['step'+update_type] = 0
             # Exponential moving average of gradient values
-            state['exp_avg'] = torch.zeros_like(p.data)
+            state['exp_avg'+update_type] = torch.zeros_like(p.data)
             # Exponential moving average of squared gradient values
-            state['exp_avg_sq'] = torch.zeros_like(p.data)
+            state['exp_avg_sq'+update_type] = torch.zeros_like(p.data)
             if amsgrad:
                 # Maintains max of all exp. moving avg. of sq. grad. values
-                state['max_exp_avg_sq'] = torch.zeros_like(p.data)
+                state['max_exp_avg_sq'+update_type] = torch.zeros_like(p.data)
+            state['initialized_'+update_type] = 1
 
-        exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+        exp_avg, exp_avg_sq = state['exp_avg'+update_type], state['exp_avg_sq'+update_type]
         if amsgrad:
-            max_exp_avg_sq = state['max_exp_avg_sq']
+            max_exp_avg_sq = state['max_exp_avg_sq'+update_type]
         beta1, beta2 = group['betas']
 
-        state['step'] += 1
-
-        if group['weight_decay'] != 0:
-            grad = grad.add(group['weight_decay'], p.data)
+        state['step'+update_type] += 1
 
         # Decay the first and second moment running average coefficient
         exp_avg.mul_(beta1).add_(1 - beta1, grad)
@@ -263,8 +249,8 @@ class ExtraAdam(Extragradient):
         else:
             denom = exp_avg_sq.sqrt().add_(group['eps'])
 
-        bias_correction1 = 1 - beta1 ** state['step']
-        bias_correction2 = 1 - beta2 ** state['step']
-        step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
+        bias_correction1 = 1 - beta1 ** state['step'+update_type]
+        bias_correction2 = 1 - beta2 ** state['step'+update_type]
+        step_size = group['lr_'+update_type] * math.sqrt(bias_correction2) / bias_correction1
 
         return -step_size*exp_avg/denom
