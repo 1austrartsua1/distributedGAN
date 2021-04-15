@@ -26,7 +26,7 @@ from utils import compute_gan_loss,sampler,clip,ProgressMeter
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
-                dataset, nz, loss_type, sampler_option, clip_amount, results):
+                dataset, nz, loss_type, sampler_option, clip_amount, results, args):
 
     # distributed stuff
     #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
@@ -126,7 +126,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                                       clip_amount,param_setting_str,dt_string,
                                       getInceptionScore)
 
-        progressMeter.record(iterations,epoch,0.0,errD,errG,D_on_real_data,D_on_fake_data,float("NaN"))
+
+        progressMeter.record(iterations,epoch,errD,errG)
     # For each epoch
     for epoch in range(num_epochs):
         tepoch = time.time()
@@ -241,14 +242,14 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
             # Output training stats
             if (global_rank == 0) and (iterations % eval_freq == 0):
-                progressMeter.record(iterations,epoch,i,errD,errG,D_on_real_data,D_on_fake_data1,D_on_fake_data2)
-
+                progressMeter.record(iterations,epoch,errD,errG)
+                progressMeter.save(ttot,tepoch)
 
 
             iters += 1
         if global_rank==0:
             tepoch = time.time()-tepoch
             print(f"epoch {epoch} time = {tepoch}")
+            print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
+                  % (epoch,num_epochs,errD,errG,D_on_real_data,D_on_fake_data,D_on_fake_data2))
             ttot = time.time() - tstart
-
-            progressMeter.save(ttot,tepoch)

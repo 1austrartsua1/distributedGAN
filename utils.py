@@ -199,7 +199,8 @@ class Minibatch:
 
 class ProgressMeter:
     def __init__(self,n_samples,nz,netG,num_epochs,dataloader,results,eval_freq,
-                 sampler_option,clip_amount,param_setting_str,dt_string,getInceptionScore):
+                 sampler_option,clip_amount,param_setting_str,dt_string,getInceptionScore,
+                 resultsFileName=None):
         self.n_samples = n_samples
         self.nz = nz
         self.netG = netG
@@ -210,8 +211,11 @@ class ProgressMeter:
         self.results['sampler_option']=sampler_option
         self.results['clip_amount'] = clip_amount
         self.results['param_setting_str'] = param_setting_str
-        self.dt_string = dt_string
         self.getInceptionScore = getInceptionScore
+        if resultsFileName is None:
+            self.resultsFileName = '/results_'+dt_string
+        else:
+            self.resultsFileName = '/'+resultsFileName
 
 
         self.epoch_running_times = []
@@ -224,7 +228,7 @@ class ProgressMeter:
 
         self.t0 = time.time()
 
-    def record(self,forward_steps,epoch,i,errD,errG,D_x,D_G_z1,D_G_z2):
+    def record(self,forward_steps,epoch,errD,errG):
         self.t0 = time.time() - self.t0
         if self.getInceptionScore:
             iscore,t_iscore = get_inception_score(self.n_samples,self.nz,self.netG)
@@ -238,9 +242,7 @@ class ProgressMeter:
         self.epochStamps.append(epoch)
         self.t0 = time.time()
 
-        print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f\t IS: %.4f'
-              % (epoch, self.num_epochs, i, self.lendataloader,
-                 errD, errG, D_x, D_G_z1, D_G_z2,self.iscores[-1]))
+        print('IS: %.4f'% (self.iscores[-1]))
 
         # Save Losses for plotting later
         self.G_losses.append(errG)
@@ -258,5 +260,5 @@ class ProgressMeter:
         self.results['epochStamps']=self.epochStamps
         self.results['total_running_time']=ttot
 
-        with open('results/'+self.results['algorithm']+'/results_'+self.dt_string, 'wb') as handle:
+        with open('results/'+self.results['algorithm']+self.resultsFileName, 'wb') as handle:
             pickle.dump(self.results, handle)

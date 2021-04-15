@@ -24,7 +24,7 @@ from optim.OptimFBF import FBFAdam
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
-                dataset, nz, loss_type, sampler_option, clip_amount, results):
+                dataset, nz, loss_type, sampler_option, clip_amount, results, args):
 
     # distributed stuff
     #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
@@ -121,7 +121,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                                       clip_amount,param_setting_str,dt_string,
                                       getInceptionScore)
 
-        progressMeter.record(forward_steps,epoch,minibatch.epoch_progress,errD,errG,D_on_real_data,D_on_fake_data,float("NaN"))
+        progressMeter.record(forward_steps,epoch,errD,errG)
 
 
     tepoch = time.time()
@@ -225,9 +225,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             newEpoch = False
             tepoch = time.time()-tepoch
             if (epoch+1) % IS_eval_freq == 0:
-                progressMeter.record(forward_steps,epoch,minibatch.epoch_progress,errD,errG,D_on_real_data,D_on_fake_data,float("NaN"))
+                progressMeter.record(forward_steps,epoch,errD,errG)
                 ttot = time.time() - tstart
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")
-
+            print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
+                  % (epoch,num_epochs,errD,errG,D_on_real_data,D_on_fake_data,D_on_fake_data2))
             tepoch = time.time()

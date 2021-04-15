@@ -20,7 +20,7 @@ import torch.utils.data.distributed
 # locals
 from utils_distributed import av_param,av_grad,av_loss
 from utils import compute_gan_loss,sampler,clip,Minibatch,ProgressMeter
-from optim.OptimExtragrad import ExtraAdam, ExtraSGD
+from optim.OptimExtragrad import ExtraAdam
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
@@ -44,8 +44,6 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         #random.seed(manualSeed)
         torch.manual_seed(manualSeed)
 
-
-
     # Number of workers for dataloader
     workers = 1
     # Batch size during training
@@ -55,11 +53,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     num_epochs = 600
     num_iterations = float('inf')
     # Learning rate for optimizers
-    #lr_dis = 2e-4
-    #lr_gen = 2e-5
-    lr_dis = 1e-2
-    lr_gen = 1e-3
-    update = "adam"
+    lr_dis = 2e-4
+    lr_gen = 2e-5
 
     # Beta1, beta2 hyperparam for Adam optimizers
     beta1 = 0.5
@@ -69,17 +64,28 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     # stale means use the same minibatch for extrapolate and step
     stale = True
 
+    # in the reduce in ps, normally it is not an average, however one can also do
+    # an average. This is simply equivalent to dividing the learning rate for the step()
+    # by world_size
+    av_reduce = True
+
+    clip_on_extrapolate = False
+
     IS_eval_freq = 5 # for FID/IS, how many epochs between calculation of IS
     # note IS calculation takes about 60 sec, so don't want to necessarily do it
     # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
     n_samples = 50000 # for FID/IS
     getInceptionScore = True
-    get_IS_first_iter = False
+    getFirstIS = False
 
-    param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},"
-    param_setting_str += f"update:{update}"
-
+    param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},av_reduce:{av_reduce}"
+    param_setting_str += f"\nclip_on_extrapolate:{clip_on_extrapolate}"
     if global_rank==0: print(param_setting_str)
+
+    if av_reduce:
+        divide_by = world_size
+    else:
+        divide_by = 1.0
 
     # create the sampler used for distributed training
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, world_size, global_rank)
@@ -109,15 +115,9 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     #  the progression of the generator
     fixed_noise = sampler(64,nz,sampler_option).cuda()
 
-    # Setup optimizers for both G and D
-
-    if update == "adam":
-        optimizerD = ExtraAdam(netD.parameters(), lr=lr_dis, betas=(beta1, beta2))
-        optimizerG = ExtraAdam(netG.parameters(), lr=lr_gen, betas=(beta1, beta2))
-    else:
-        optimizerD = ExtraSGD(netD.parameters(), lr=lr_dis)
-        optimizerG = ExtraSGD(netG.parameters(), lr=lr_gen)
-
+    # Setup Adam optimizers for both G and D
+    optimizerD = ExtraAdam(netD.parameters(), lr=lr_dis, betas=(beta1, beta2))
+    optimizerG = ExtraAdam(netG.parameters(), lr=lr_gen, betas=(beta1, beta2))
 
     # Training Loop
     forward_steps = 0
@@ -131,14 +131,15 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         progressMeter = ProgressMeter(n_samples,nz,netG,num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
-                                      getInceptionScore)
+                                      getInceptionScore, args.results)
 
-        if not get_IS_first_iter:
+
+        if not getFirstIS:
             progressMeter.getInceptionScore = False
 
         progressMeter.record(forward_steps,epoch,errD,errG)
+        progressMeter.getInceptionScore = getInceptionScore
 
-    progressMeter.getInceptionScore = True
 
     tepoch = time.time()
     while (forward_steps < 2*num_iterations) and (epoch < num_epochs):
@@ -193,8 +194,6 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         errD = av_loss(errD, 1.0)
         D_on_fake_data = av_loss(D_on_fake_data, b_size)
 
-        # average discriminator gradients across workers
-        av_grad(netD,world_size)
 
         ############################
         # (2) Calculate G network gradients
@@ -215,25 +214,36 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
         errG = av_loss(errG, 1.0)
 
-        # average G's gradients across workers
-        av_grad(netG,world_size)
+
 
         if forward_steps%2 == 0:
+            
             #extrapolation
             # Update G
             optimizerG.extrapolate()
             # Update D
             optimizerD.extrapolate()
+
+            if clip_on_extrapolate:
+                clip(netD,clip_amount)
         else:
+            # for sync projective splitting, only perform the all-reduce
+            # before a step() update, not before extrapolate().
+
+            # average discriminator gradients across workers
+            av_grad(netD,divide_by)
+            # average G's gradients across workers
+            av_grad(netG,divide_by)
+
             #step
             # Update G
             optimizerG.step()
             # Update D
             optimizerD.step()
 
-        # clip the discriminator tensors
-        # for extragradient, clip after both extrapolate() and the step()
-        clip(netD,clip_amount)
+            # clip the discriminator tensors
+            # for projective splitting, clip only after the step()
+            clip(netD,clip_amount)
 
         forward_steps += 1
         for p in netD.parameters():
@@ -248,6 +258,5 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")
             print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
-                  % (epoch,num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
-
+            % (epoch,num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
             tepoch = time.time()
