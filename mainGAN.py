@@ -17,7 +17,7 @@ from utils import get_models,get_data
 
 parser = argparse.ArgumentParser(description='Distributed GAN training')
 parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'], help='Specify the distributed backend to use',default='nccl')
-parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps'],default='fbf')
+parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='fbf')
 parser.add_argument('-r','--results',default=None)
 parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar')
 parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],default="dcgan_fbf_paper")
@@ -36,6 +36,8 @@ elif args.algorithm == "extragrad":
     from algorithms.extragrad import main_worker
 elif args.algorithm == "ps":
     from algorithms.ps import main_worker
+elif args.algorithm == "psd":
+    from algorithms.ps_d import main_worker
 else:
     raise NotImplementedError()
 

@@ -21,7 +21,7 @@ import torch.utils.data.distributed
 from utils_distributed import av_param,av_grad,av_loss
 from utils import compute_gan_loss,sampler,clip,Minibatch,ProgressMeter
 #from optim.OptimExtragrad import ExtraAdam
-from optim.OptimPS import PS_Adam, PS_SGD
+from optim.OptimPSd import PS_Adam, PS_SGD
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
@@ -71,13 +71,14 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     n_samples = 50000 # for FID/IS
     getISscore = True
     getFIDscore = False
-    getFirstScore = True 
+    getFirstScore = True
     path2FIDstats = './pytorch_fid/stats/fid_stats_cifar10_train.npz'
     #################################################################################
     ########################### END Param settings ##################################
     #################################################################################
 
     results['batch_size'] = batch_size
+
     param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step:.4f},"
     if lr_dis_extrap:
         param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap:.4f},\n"
@@ -263,13 +264,17 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
             #step
             # Update G
-            optimizerG.step()
+            optimizerG.primal_step()
             # Update D
-            optimizerD.step()
-
+            optimizerD.primal_step()
             # clip the discriminator tensors
             # for projective splitting, clip only after the step()
             clip(netD,clip_amount)
+
+            optimizerG.dual_step(world_size)
+            optimizerD.dual_step(world_size)
+
+
 
         forward_steps += 1
         for p in netD.parameters():

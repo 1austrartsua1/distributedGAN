@@ -45,7 +45,7 @@ def plot_loss(file,plotType,label):
 
 
 
-def get_a_plot(file,plotType,label):
+def get_a_plot(file,plotType,label,commsPerForwardStep=None):
 
     with open('results/'+file, 'rb') as handle:
         res = pickle.load(handle)
@@ -59,7 +59,11 @@ def get_a_plot(file,plotType,label):
         plt.ylabel('IS')
         plt.xlabel('time (s)')
 
-
+    elif plotType == "comms":
+        comms = [commsPerForwardStep*res['forwardStepStamps'][i] for i in range(len(res['forwardStepStamps']))]
+        plt.plot(comms,res['iscores'],'o-',label=label)
+        plt.ylabel('IS')
+        plt.xlabel('num gen/dis all-reduces')
     else:
         plt.plot(res['forwardStepStamps'],res['iscores'],'o-',label=label)
         plt.ylabel('IS')
@@ -70,15 +74,11 @@ def get_a_plot(file,plotType,label):
 
 if __name__ == "__main__":
 
-    get_a_plot("extragrad/extragrad8","time","extragrad-batchsize=8*64")
-    get_a_plot("fbf/fbf_distBigBatch1","time","fbf-batchsize=8*64")
-    get_a_plot("fbf/fbf_replicate1","time","fbf-batchsize=1*64")
-    
-    file = "ps/ps1beta0"
-    label = "ps1beta0"
-    with open('results/'+file, 'rb') as handle:
-        res = pickle.load(handle)
-    plt.plot(res['timestamps'][1:],res['iscores'],'o-',label=label)
+    get_a_plot("extragrad/extragrad16","comms","extragrad:16*64",2)
+    get_a_plot("ps/ps16","comms","ps:16*64",1)
+
+
+
 
 
     plt.grid()

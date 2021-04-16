@@ -44,7 +44,6 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     workers = 1
     # Batch size during training
     batch_size = 64
-    results['batch_size'] = batch_size
     # Number of training epochs
     num_epochs = 600
     num_iterations = float('inf')
@@ -69,7 +68,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     #################################################################################
     ########################### END Param settings ##################################
     #################################################################################
-
+    results['batch_size'] = batch_size
     param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},"
     param_setting_str += f"update:{update}"
 
