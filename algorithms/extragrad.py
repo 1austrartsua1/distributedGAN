@@ -35,17 +35,11 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     tstart = time.time()
 
+    #################################################################################
+    ########################### Param settings ######################################
+    #################################################################################
     # Set random seed for reproducibility
     set_seed = False
-    if set_seed:
-        manualSeed = 999
-        #manualSeed = random.randint(1, 10000) # use if you want new results
-        print("Random Seed: ", manualSeed)
-        #random.seed(manualSeed)
-        torch.manual_seed(manualSeed)
-
-
-
     # Number of workers for dataloader
     workers = 1
     # Batch size during training
@@ -55,29 +49,36 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     num_epochs = 600
     num_iterations = float('inf')
     # Learning rate for optimizers
-    #lr_dis = 2e-4
-    #lr_gen = 2e-5
-    lr_dis = 1e-2
-    lr_gen = 1e-3
+    lr_dis = 2e-4
+    lr_gen = 2e-5
     update = "adam"
-
     # Beta1, beta2 hyperparam for Adam optimizers
     beta1 = 0.5
     beta2 = 0.9
-
     # new means get a new minibatch for the optimizer.step,
     # stale means use the same minibatch for extrapolate and step
     stale = True
-
-    IS_eval_freq = 5 # for FID/IS, how many epochs between calculation of IS
+    IS_eval_freq = 12 # for FID/IS, how many epochs between calculation of IS
     # note IS calculation takes about 60 sec, so don't want to necessarily do it
     # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
     n_samples = 50000 # for FID/IS
-    getInceptionScore = True
-    get_IS_first_iter = False
+    getISscore = True
+    getFIDscore = False
+    getFirstScore = True
+    path2FIDstats = None
+    #################################################################################
+    ########################### END Param settings ##################################
+    #################################################################################
 
     param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},"
     param_setting_str += f"update:{update}"
+
+    if set_seed:
+        manualSeed = 999
+        #manualSeed = random.randint(1, 10000) # use if you want new results
+        print("Random Seed: ", manualSeed)
+        #random.seed(manualSeed)
+        torch.manual_seed(manualSeed)
 
     if global_rank==0: print(param_setting_str)
 
@@ -131,14 +132,15 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         progressMeter = ProgressMeter(n_samples,nz,netG,num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
-                                      getInceptionScore)
+                                      getISscore,args.results,getFIDscore,path2FIDstats)
 
-        if not get_IS_first_iter:
-            progressMeter.getInceptionScore = False
+        if not getFirstScore:
+            progressMeter.getISscore = False
+            progressMeter.getFIDscore = False
 
-        progressMeter.record(forward_steps,epoch,errD,errG)
-
-    progressMeter.getInceptionScore = True
+        progressMeter.record(forward_steps,epoch,errD,errG,netG)
+        progressMeter.getISscore = getISscore
+        progressMeter.getFIDscore = getFIDscore
 
     tepoch = time.time()
     while (forward_steps < 2*num_iterations) and (epoch < num_epochs):
@@ -243,7 +245,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             newEpoch = False
             tepoch = time.time()-tepoch
             if (epoch+1) % IS_eval_freq == 0:
-                progressMeter.record(forward_steps,epoch,errD,errG)
+                progressMeter.record(forward_steps,epoch,errD,errG,netG)
                 ttot = time.time() - tstart
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")

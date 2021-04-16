@@ -36,57 +36,72 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     tstart = time.time()
 
+    #################################################################################
+    ########################### Param settings ######################################
+    #################################################################################
     # Set random seed for reproducibility
     set_seed = False
-    if set_seed:
-        manualSeed = 999
-        #manualSeed = random.randint(1, 10000) # use if you want new results
-        print("Random Seed: ", manualSeed)
-        #random.seed(manualSeed)
-        torch.manual_seed(manualSeed)
-
     # Number of workers for dataloader
     workers = 1
     # Batch size during training
     batch_size = 64
-    results['batch_size'] = batch_size
     # Number of training epochs
     num_epochs = 600
     num_iterations = float('inf')
     # Learning rate for optimizers
     lr_dis_step = 2e-4
     lr_gen_step = 2e-5
-    lr_dis_extrap = np.sqrt(lr_dis_step)
-    lr_gen_extrap = np.sqrt(lr_gen_step)
-    adam_updates = False
-
+    lr_dis_extrap = None
+    lr_gen_extrap = None
+    adam_updates = True
     # Beta1, beta2 hyperparam for Adam optimizers
-    beta1 = 0.5
+    #beta1 = 0.5
+    beta1 = 0.0
     beta2 = 0.9
-
     # new means get a new minibatch for the optimizer.step,
     # stale means use the same minibatch for extrapolate and step
     stale = True
-
     # in the reduce in ps, normally it is not an average, however one can also do
     # an average. This is simply equivalent to dividing the learning rate for the step()
     # by world_size
     av_reduce = True
-
     clip_on_extrapolate = False
-
     IS_eval_freq = 5 # for FID/IS, how many epochs between calculation of IS
     # note IS calculation takes about 60 sec, so don't want to necessarily do it
     # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
     n_samples = 50000 # for FID/IS
-    getInceptionScore = True
-    getFirstIS = False
+    getISscore = True
+    getFIDscore = False
+    getFirstScore = False
+    path2FIDstats = './pytorch_fid/stats/fid_stats_cifar10_train.npz'
+    #################################################################################
+    ########################### END Param settings ##################################
+    #################################################################################
 
-    param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step:.4f},lr_dis_extrap:{lr_dis_extrap:.4f},\n"
-    param_setting_str += f"lr_gen_step:{lr_gen_step:.4f},lr_gen_extrap:{lr_gen_extrap:.4f},beta1:{beta1},beta2:{beta2},\n"
+    results['batch_size'] = batch_size
+    param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step:.4f},"
+    if lr_dis_extrap:
+        param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap:.4f},\n"
+    else:
+        param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap},\n"
+    param_setting_str += f"lr_gen_step:{lr_gen_step:.4f},"
+    if lr_gen_extrap:
+        param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap:.4f},"
+    else:
+        param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
+
     param_setting_str += f"stale:{stale},workers:{workers},av_reduce:{av_reduce}\n"
-    param_setting_str += f"clip_on_extrapolate:{clip_on_extrapolate},adam_updates:{adam_updates}"
+    param_setting_str += f"clip_on_extrapolate:{clip_on_extrapolate},adam_updates:{adam_updates}\n"
+    param_setting_str += f"beta1:{beta1},beta2:{beta2}"
+
     if global_rank==0: print(param_setting_str)
+
+    if set_seed:
+        manualSeed = 999
+        #manualSeed = random.randint(1, 10000) # use if you want new results
+        print("Random Seed: ", manualSeed)
+        #random.seed(manualSeed)
+        torch.manual_seed(manualSeed)
 
     if av_reduce:
         divide_by = world_size
@@ -141,14 +156,16 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         progressMeter = ProgressMeter(n_samples,nz,netG,num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
-                                      getInceptionScore, args.results)
+                                      getISscore, args.results,getFIDscore,path2FIDstats)
 
 
-        if not getFirstIS:
-            progressMeter.getInceptionScore = False
+        if not getFirstScore:
+            progressMeter.getISscore = False
+            progressMeter.getFIDscore = False
 
-        progressMeter.record(forward_steps,epoch,errD,errG)
-        progressMeter.getInceptionScore = getInceptionScore
+        progressMeter.record(forward_steps,epoch,errD,errG,netG)
+        progressMeter.getISscore = getISscore
+        progressMeter.getFIDscore = getFIDscore
 
 
     tepoch = time.time()
@@ -263,7 +280,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             newEpoch = False
             tepoch = time.time()-tepoch
             if (epoch+1) % IS_eval_freq == 0:
-                progressMeter.record(forward_steps,epoch,errD,errG)
+                progressMeter.record(forward_steps,epoch,errD,errG,netG)
                 ttot = time.time() - tstart
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")

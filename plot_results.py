@@ -50,7 +50,7 @@ def get_a_plot(file,plotType,label):
     with open('results/'+file, 'rb') as handle:
         res = pickle.load(handle)
 
-    print(f"total runtime = {res['total_running_time']/60:.4f} minutes")
+    #print(f"total runtime = {res['total_running_time']/60:.4f} minutes")
 
 
 
@@ -68,27 +68,18 @@ def get_a_plot(file,plotType,label):
     return
 
 
-
-if __name__ == "__main__2":
-    get_a_plot("ps/ps1","time","ps1")
-    get_a_plot("ps/ps2","time","ps2")
-    get_a_plot("ps/ps4","time","ps4")
-    get_a_plot("ps/ps8","time","ps8")
-    get_a_plot("ps/ps_spAdam1","time","ps2spAdam")
-    get_a_plot("ps/ps_spAdam4","time","ps4spAdam")
-
-
-    plt.grid()
-    plt.legend()
-    plt.show()
-
 if __name__ == "__main__":
 
     get_a_plot("extragrad/extragrad8","time","extragrad-batchsize=8*64")
     get_a_plot("fbf/fbf_distBigBatch1","time","fbf-batchsize=8*64")
     get_a_plot("fbf/fbf_replicate1","time","fbf-batchsize=1*64")
-    get_a_plot("ps/ps2stepsizes","time","ps2stepsizes")
-    get_a_plot("ps/ps_spAdam8","time","ps8spAdam")
+    
+    file = "ps/ps1beta0"
+    label = "ps1beta0"
+    with open('results/'+file, 'rb') as handle:
+        res = pickle.load(handle)
+    plt.plot(res['timestamps'][1:],res['iscores'],'o-',label=label)
+
 
     plt.grid()
     plt.legend()

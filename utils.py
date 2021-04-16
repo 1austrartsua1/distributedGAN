@@ -12,12 +12,15 @@ import inception_score as iscore
 import randomDataLoaderv2 as rd
 import models
 
-def calculate_frechet(images_fake,mu_real,std_real,model):
-    mu_2,std_2=calculate_activation_statistics(images_fake,model,cuda=None)
+from pytorch_fid.fid_score import calculate_activation_statistics_kaggle, calculate_frechet_distance
 
-     """get fretched distance"""
-     fid_value = calculate_frechet_distance(mu_1, std_1, mu_2, std_2)
-     return fid_value
+
+
+#def calculate_frechet(gen):
+#    mu_2,std_2=calculate_activation_statistics(images_fake,inception_model,cuda=None)
+
+#    fid_value = calculate_frechet_distance(mu_1, std_1, mu_2, std_2)
+#    return fid_value
 
 def get_models(which_model):
 
@@ -151,7 +154,7 @@ def clip(net,clip_amount):
         p.data.clamp_(-clip_amount, clip_amount)
 
 
-def get_inception_score(n_samples,nz,netG):
+def get_samples(n_samples,nz,netG):
     all_samples = []
     samples = torch.randn(n_samples, nz)
     for i in range(0, n_samples, 100):
@@ -159,8 +162,13 @@ def get_inception_score(n_samples,nz,netG):
         all_samples.append(netG(batch_samples).cpu().data.numpy())
 
     all_samples = np.concatenate(all_samples, axis=0)
+    return torch.from_numpy(all_samples)
+
+
+def get_inception_score(n_samples,nz,netG):
+    all_samples = get_samples(n_samples,nz,netG)
     t0 = time.time()
-    out = iscore.inception_score(torch.from_numpy(all_samples), resize=True, cuda=True)[0]
+    out = iscore.inception_score(all_samples, resize=True, cuda=True)[0]
     t0 = time.time()-t0
     return out,t0
 
@@ -204,8 +212,8 @@ class Minibatch:
 
 class ProgressMeter:
     def __init__(self,n_samples,nz,netG,num_epochs,dataloader,results,eval_freq,
-                 sampler_option,clip_amount,param_setting_str,dt_string,getInceptionScore,
-                 resultsFileName=None):
+                 sampler_option,clip_amount,param_setting_str,dt_string,getISscore,
+                 resultsFileName,getFIDscore,path2FIDstats):
         self.n_samples = n_samples
         self.nz = nz
         self.netG = netG
@@ -216,15 +224,27 @@ class ProgressMeter:
         self.results['sampler_option']=sampler_option
         self.results['clip_amount'] = clip_amount
         self.results['param_setting_str'] = param_setting_str
-        self.getInceptionScore = getInceptionScore
         if resultsFileName is None:
             self.resultsFileName = '/results_'+dt_string
         else:
             self.resultsFileName = '/'+resultsFileName
 
+        self.getISscore = getISscore
+        self.getFIDscore = getFIDscore
+        if self.getFIDscore:
+            from pytorch_fid.inception import InceptionV3
+            # below taken from https://www.kaggle.com/ibtesama/gan-in-pytorch-with-fid
+            block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
+            self.modelInception = InceptionV3([block_idx])
+            self.modelInception.cuda()
+
+            # get statistics for cifar
+            with np.load(path2FIDstats) as f:
+                self.mu_real, self.sigma_real = f['mu'][:], f['sigma'][:]
 
         self.epoch_running_times = []
         self.iscores = []
+        self.fidscores = []
         self.timestamps = [0.0]
         self.forwardStepStamps = []
         self.epochStamps = []
@@ -233,21 +253,34 @@ class ProgressMeter:
 
         self.t0 = time.time()
 
-    def record(self,forward_steps,epoch,errD,errG):
+    def record(self,forward_steps,epoch,errD,errG,netG):
         self.t0 = time.time() - self.t0
-        if self.getInceptionScore:
+        if self.getISscore:
             iscore,t_iscore = get_inception_score(self.n_samples,self.nz,self.netG)
         else:
             iscore,t_iscore = -1,-1
+
+        if self.getFIDscore:
+            fid,t_fid = self.calculateFID(netG)
+        else:
+            fid,t_fid = -1,-1
+
+
+        self.fidscores.append(fid)
         self.iscores.append(iscore)
-        print(f"time to get IS: {t_iscore}")
-        print(f"time since last print out: {self.t0}")
+
+        print(f"time to get IS: {t_iscore:.4f}")
+        print(f"time to get FID: {t_fid:.4f}")
+        print(f"time since last print out: {self.t0:.4f}")
         self.timestamps.append(self.timestamps[-1]+self.t0)
         self.forwardStepStamps.append(forward_steps)
         self.epochStamps.append(epoch)
         self.t0 = time.time()
 
-        print('IS: %.4f'% (self.iscores[-1]))
+        if iscore>=0:
+            print('IS: %.4f'% (iscore))
+        if fid>=0:
+            print('FID: %.4f'% (fid))
 
         # Save Losses for plotting later
         self.G_losses.append(errG)
@@ -267,3 +300,14 @@ class ProgressMeter:
 
         with open('results/'+self.results['algorithm']+self.resultsFileName, 'wb') as handle:
             pickle.dump(self.results, handle)
+
+    def calculateFID(self,netG):
+        tfid = time.time()
+        # get fake images
+        images_fake = get_samples(self.n_samples,self.nz,netG)
+        #images_fake
+        mu_fake,sigma_fake=calculate_activation_statistics_kaggle(images_fake,self.modelInception,batch_size=1)
+
+        fid_value = calculate_frechet_distance(self.mu_real, self.sigma_real, mu_fake, sigma_fake)
+
+        return fid_value,time.time()-tfid
