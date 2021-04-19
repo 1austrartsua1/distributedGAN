@@ -21,16 +21,28 @@ from pytorch_fid.fid_score import calculate_activation_statistics_kaggle, calcul
 
 #    fid_value = calculate_frechet_distance(mu_1, std_1, mu_2, std_2)
 #    return fid_value
+def get_param_count(net):
+    nparams = 0
+    for p in net.parameters():
+        nparams += np.prod(p.shape)
+    return nparams
 
-def get_models(which_model):
+
+def get_models(which_model,moreChannels):
 
     if which_model == "resnet_fbf_paper":
         nz = 128
         nc = 3
-        ngf = 128
+        if moreChannels:
+            ngf = 128
+            ndf = 128
+        else:
+            ngf = 64
+            ndf = 64
+
         batch_norm_g = True
 
-        ndf = 128
+
         batch_norm_d = False
         netG = models.ResNet32Generator(nz, nc, ngf, batch_norm_g)
         netD = models.ResNet32Discriminator(nc, 1, ndf, batch_norm_d)
@@ -39,12 +51,17 @@ def get_models(which_model):
         netD.apply(weight_init_fbf_paper)
 
     elif which_model == "dcgan_fbf_paper":
+        if moreChannels:
+            ngf = 128
+            ndf = 128
+        else:
+            ngf = 64
+            ndf = 64
+
         nz = 128
         nc = 3
-        ngf = 64
-        batch_norm_g = True
 
-        ndf = 64
+        batch_norm_g = True
         batch_norm_d = True
 
         netG = models.DCGAN32Generator(nz, nc, ngf, batchnorm=batch_norm_g)
@@ -52,7 +69,6 @@ def get_models(which_model):
 
         netG.apply(weight_init_fbf_paper)
         netD.apply(weight_init_fbf_paper)
-
 
     else:
 
@@ -213,7 +229,7 @@ class Minibatch:
 class ProgressMeter:
     def __init__(self,n_samples,nz,netG,num_epochs,dataloader,results,eval_freq,
                  sampler_option,clip_amount,param_setting_str,dt_string,getISscore,
-                 resultsFileName,getFIDscore,path2FIDstats):
+                 resultsFileName,getFIDscore,path2FIDstats,moreChannels):
         self.n_samples = n_samples
         self.nz = nz
         self.netG = netG
@@ -224,10 +240,14 @@ class ProgressMeter:
         self.results['sampler_option']=sampler_option
         self.results['clip_amount'] = clip_amount
         self.results['param_setting_str'] = param_setting_str
-        if resultsFileName is None:
-            self.resultsFileName = '/results_'+dt_string
+        if moreChannels:
+            startFile = 'results/moreChannels/'
         else:
-            self.resultsFileName = '/'+resultsFileName
+            startFile = 'results/'
+        if resultsFileName is None:
+            self.resultsFileName = startFile+'results_'+dt_string
+        else:
+            self.resultsFileName = startFile+self.results['algorithm']+'/'+resultsFileName
 
         self.getISscore = getISscore
         self.getFIDscore = getFIDscore
@@ -298,7 +318,7 @@ class ProgressMeter:
         self.results['epochStamps']=self.epochStamps
         self.results['total_running_time']=ttot
 
-        with open('results/'+self.results['algorithm']+self.resultsFileName, 'wb') as handle:
+        with open(self.resultsFileName, 'wb') as handle:
             pickle.dump(self.results, handle)
 
     def calculateFID(self,netG):

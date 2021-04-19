@@ -57,6 +57,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     # new means get a new minibatch for the optimizer.step,
     # stale means use the same minibatch for extrapolate and step
     stale = True
+    #################################################################################
+    ########################### END Param settings ##################################
+    #################################################################################
+    #################################################################################
+    ########################### Control settings ####################################
+    #################################################################################
     IS_eval_freq = 12 # for FID/IS, how many epochs between calculation of IS
     # note IS calculation takes about 60 sec, so don't want to necessarily do it
     # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
@@ -66,8 +72,9 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     getFirstScore = True
     path2FIDstats = None
     #################################################################################
-    ########################### END Param settings ##################################
+    ########################### End Control settings ################################
     #################################################################################
+
     results['batch_size'] = batch_size
     param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},"
     param_setting_str += f"update:{update}"
@@ -131,7 +138,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         progressMeter = ProgressMeter(n_samples,nz,netG,num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
-                                      getISscore,args.results,getFIDscore,path2FIDstats)
+                                      getISscore,args.results,getFIDscore,path2FIDstats,
+                                      args.moreChannels)
 
         if not getFirstScore:
             progressMeter.getISscore = False

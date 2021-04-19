@@ -74,9 +74,8 @@ def get_a_plot(file,plotType,label,commsPerForwardStep=None):
 
 if __name__ == "__main__":
 
-    get_a_plot("extragrad/extragrad16","comms","extragrad:16*64",2)
-    get_a_plot("ps/ps16","comms","ps:16*64",1)
-
+    get_a_plot("moreChannels/extragrad/eg2","comms","extragrad:2*64",2)
+    get_a_plot("moreChannels/psd/psd2","comms","psd:2*64",1)
 
 
 

@@ -13,20 +13,21 @@ from distributed import init_workers
 
 
 
-from utils import get_models,get_data
+from utils import get_models,get_data,get_param_count
 
 parser = argparse.ArgumentParser(description='Distributed GAN training')
 parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'], help='Specify the distributed backend to use',default='nccl')
-parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='fbf')
+parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='extragrad')
 parser.add_argument('-r','--results',default=None)
 parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar')
 parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],default="dcgan_fbf_paper")
 parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan")
 parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"],default="fbf_paper")
 parser.add_argument('--clip_amount',default=0.01,type=float)
-
+parser.add_argument('--moreChannels', action='store_true')
 
 args = parser.parse_args()
+
 
 if args.algorithm == "fbf":
     from algorithms.fbf import main_worker
@@ -61,6 +62,7 @@ def main():
         print(f"clip amount: {args.clip_amount}")
         print(f"algorithm: {args.algorithm}")
         print(f"distributed backend: {args.distributed_backend}")
+        print(f"moreChannels: {args.moreChannels}")
         print(f"results file: {args.results}")
         results['which_data']=args.which_data
         results['which_model']=args.which_model
@@ -70,6 +72,8 @@ def main():
         results['node_num'] = node_num
         results['torch_version'] = torch.__version__
         results['distributed_backend']=args.distributed_backend
+        results['moreChannels']=args.moreChannels
+
 
 
 
@@ -77,8 +81,15 @@ def main():
     print('Global Rank : ', global_rank)
 
 
-    netG,netD,nz = get_models(args.which_model)
+    netG,netD,nz = get_models(args.which_model,args.moreChannels)
     dataset = get_data(args.which_data)
+    if global_rank == 0:
+        nParamsD = get_param_count(netD)
+        nParamsG = get_param_count(netG)
+        print(f"num params D: {nParamsD}")
+        print(f"Discriminator size (MB): {4*nParamsD/(1e6):.4f}")
+        print(f"num params G: {get_param_count(netG)}")
+        print(f"Generator size (MB): {4*nParamsG/(1e6):.4f}")
 
     main_worker(global_rank,local_rank,world_size,netG,netD,
                 dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,args)
