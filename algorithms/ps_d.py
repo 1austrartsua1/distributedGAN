@@ -53,7 +53,11 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     lr_gen_step = 2e-5
     lr_dis_extrap = None
     lr_gen_extrap = None
+    gamma = 10.0
+    lr_dis_dual = gamma*lr_dis_step
+    lr_gen_dual = gamma*lr_gen_step
     adam_updates = True
+    AdamForDuals = False
     # Beta1, beta2 hyperparam for Adam optimizers
     beta1 = 0.5
     beta2 = 0.9
@@ -71,13 +75,13 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     #################################################################################
     ########################### Control settings ####################################
     #################################################################################
-    IS_eval_freq = 12 # for FID/IS, how many epochs between calculation of IS
+    IS_eval_freq = 5 # for FID/IS, how many epochs between calculation of IS
     # note IS calculation takes about 60 sec, so don't want to necessarily do it
     # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
     n_samples = 50000 # for FID/IS
     getISscore = True
     getFIDscore = False
-    getFirstScore = True
+    getFirstScore = False
     path2FIDstats = None
     #################################################################################
     ########################### End Control settings ################################
@@ -85,20 +89,13 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     results['batch_size'] = batch_size
 
-    param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step:.4f},"
-    if lr_dis_extrap:
-        param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap:.4f},\n"
-    else:
-        param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap},\n"
-    param_setting_str += f"lr_gen_step:{lr_gen_step:.4f},"
-    if lr_gen_extrap:
-        param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap:.4f},"
-    else:
-        param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
-
+    param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step},"
+    param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap},\n"
+    param_setting_str += f"lr_gen_step:{lr_gen_step},"
+    param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
     param_setting_str += f"stale:{stale},workers:{workers},av_reduce:{av_reduce}\n"
     param_setting_str += f"clip_on_extrapolate:{clip_on_extrapolate},adam_updates:{adam_updates}\n"
-    param_setting_str += f"beta1:{beta1},beta2:{beta2}"
+    param_setting_str += f"beta1:{beta1},beta2:{beta2},AdamForDuals:{AdamForDuals},gamma:{gamma}"
 
     if global_rank==0: print(param_setting_str)
 
@@ -144,8 +141,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     # Setup Adam optimizers for both G and D
     if adam_updates:
-        optimizerD = PS_Adam(netD.parameters(), lr_step=lr_dis_step,lr_extrap=lr_dis_extrap, betas=(beta1, beta2))
-        optimizerG = PS_Adam(netG.parameters(), lr_step=lr_gen_step,lr_extrap=lr_gen_extrap, betas=(beta1, beta2))
+        optimizerD = PS_Adam(netD.parameters(), lr_step=lr_dis_step,
+                             lr_extrap=lr_dis_extrap, betas=(beta1, beta2),
+                             AdamForDuals=AdamForDuals,lr_dual=lr_dis_dual)
+        optimizerG = PS_Adam(netG.parameters(), lr_step=lr_gen_step,
+                             lr_extrap=lr_gen_extrap, betas=(beta1, beta2),
+                             AdamForDuals=AdamForDuals,lr_dual=lr_gen_dual)
     else:
         optimizerD = PS_SGD(netD.parameters(), lr_step=lr_dis_step,lr_extrap=lr_dis_extrap)
         optimizerG = PS_SGD(netG.parameters(), lr_step=lr_gen_step,lr_extrap=lr_gen_extrap)

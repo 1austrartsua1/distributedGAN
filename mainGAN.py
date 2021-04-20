@@ -91,8 +91,11 @@ def main():
         print(f"num params G: {get_param_count(netG)}")
         print(f"Generator size (MB): {4*nParamsG/(1e6):.4f}")
 
+
     main_worker(global_rank,local_rank,world_size,netG,netD,
                 dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,args)
+
+
 
 
 if __name__ == '__main__':

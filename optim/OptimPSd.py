@@ -44,6 +44,8 @@ class PS(Optimizer):
         self.params_copy = []
         self.wi = []
 
+
+
     def update(self, p, group, update_type):
         raise NotImplementedError
 
@@ -108,12 +110,15 @@ class PS(Optimizer):
             dist.all_reduce(params_av[-1].data, op=dist.ReduceOp.SUM)
             params_av[-1].data /= world_size
 
-        for i in range(len(params_av)):
-            self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - params_av[i].data)
+        self.update_duals(params_av)
 
         self.params_copy = []
         params_av = []
 
+    def update_duals(self,params_av):
+        for i in range(len(params_av)):
+            self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - params_av[i].data)
+        return
 
 
 
@@ -219,7 +224,7 @@ class PS_Adam(PS):
     """
 
     def __init__(self, params, lr_step=1e-3, lr_extrap=None, betas=(0.9, 0.999), eps=1e-8,
-                 amsgrad=False,lr_dual=None):
+                 amsgrad=False,lr_dual=None,AdamForDuals = False):
         if not 0.0 <= lr_step:
             raise ValueError("Invalid learning rate: {}".format(lr_step))
         if (lr_extrap is not None) and (not 0.0 <= lr_extrap):
@@ -238,8 +243,21 @@ class PS_Adam(PS):
         else:
             self.lr_dual = lr_dual
 
+
+
+        #params needed for dual with adam updates
+        self.AdamForDuals = AdamForDuals
+        self.dualAdamInitializeNeeded = True
+        self.dual_beta1 = betas[0]
+        self.dual_beta2 = betas[1]
+        self.dual_exp_avg = []
+        self.dual_exp_avg_sq = []
+        self.dual_eps = eps
+        self.dualstep = 1
+
         defaults = dict(lr_step=lr_step,lr_extrap=lr_extrap, betas=betas, eps=eps,
                         amsgrad=amsgrad)
+
         super(PS_Adam, self).__init__(params, defaults)
 
     def __setstate__(self, state):
@@ -296,3 +314,31 @@ class PS_Adam(PS):
         step_size = group['lr_'+update_type] * math.sqrt(bias_correction2) / bias_correction1
 
         return -step_size*exp_avg/denom
+
+    def update_duals(self,params_av):
+
+        if not self.AdamForDuals:
+            for i in range(len(params_av)):
+                self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - params_av[i].data)
+            return
+
+        beta1 = self.dual_beta1
+        beta2 = self.dual_beta2
+        for i in range(len(params_av)):
+            update = self.params_copy[i].data - params_av[i].data
+            if self.dualAdamInitializeNeeded:
+                self.dual_exp_avg.append(torch.zeros_like(params_av[i].data))
+                self.dual_exp_avg_sq.append(torch.zeros_like(params_av[i].data))
+
+
+            self.dual_exp_avg[i].mul_(beta1).add_(1 - beta1, update)
+            self.dual_exp_avg_sq[i].mul_(beta2).addcmul_(1 - beta2, update, update)
+            denom = self.dual_exp_avg_sq[i].sqrt().add_(self.dual_eps)
+            bias_correction1 = 1 - beta1 ** self.dualstep
+            bias_correction2 = 1 - beta2 ** self.dualstep
+            step_size = self.lr_dual * math.sqrt(bias_correction2) / bias_correction1
+
+            self.wi[i].data -= step_size*self.dual_exp_avg[i]/denom
+
+        self.dualAdamInitializeNeeded = False
+        self.dualstep += 1
