@@ -44,7 +44,7 @@ elif args.algorithm == "psd":
 else:
     raise NotImplementedError()
 
-params = read_config_file(args.algorithm)
+params,_ = read_config_file(args.algorithm)
 args.paramTuning = False
 args.tuneVal = None
 

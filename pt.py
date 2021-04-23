@@ -27,10 +27,7 @@ parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"]
 parser.add_argument('--clip_amount',default=0.01,type=float)
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=50)
-parser.add_argument('-tv','--tuning_variable', choices=['gamma','lr_dis'])
-parser.add_argument('-tmin','--tune_min', type=int)
-parser.add_argument('-tmax','--tune_max', type=int)
-parser.add_argument('-tn','--tune_num', type=int)
+
 
 
 args = parser.parse_args()
@@ -49,7 +46,11 @@ elif args.algorithm == "psd":
 else:
     raise NotImplementedError()
 
-params = read_config_file(args.algorithm)
+params,tune_vals = read_config_file(args.algorithm)
+
+for key in tune_vals:
+    args.tuning_variable = key
+    break
 
 def main():
     global_rank, world_size = init_workers(args.distributed_backend)
@@ -62,9 +63,6 @@ def main():
     if global_rank==0:
         print("parameter tuning")
         print(f"tuning variable: {args.tuning_variable}")
-        print(f"tmin: {args.tune_min}")
-        print(f"tmax: {args.tune_max}")
-        print(f"tn: {args.tune_num}")
         print('pytorch version : ', torch.__version__)
         print('WORLD SIZE:', world_size)
         print('The number of nodes : ', node_num)
@@ -87,9 +85,12 @@ def main():
         results['torch_version'] = torch.__version__
         results['distributed_backend']=args.distributed_backend
         results['moreFilters']=args.moreFilters
+        results['num_epochs']=args.num_epochs
 
 
-    tuneVarVals = np.logspace(args.tune_min,args.tune_max,args.tune_num)
+    tuneVarVals = tune_vals[args.tuning_variable]
+    results['tuneVarVals'] = tuneVarVals
+    results['tuning_variable'] = args.tuning_variable
 
     netG,netD,nz = get_models(args.which_model,args.moreFilters)
     dataset = get_data(args.which_data)

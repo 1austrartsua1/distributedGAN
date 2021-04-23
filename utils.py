@@ -20,7 +20,12 @@ def read_config_file(algorithm):
     with open(config) as f:
         data = json.load(f)
     params = argparse.Namespace(**data)
-    return params
+
+    # also read param tune file
+    param_tune = "config/"+algorithm+'/param_tune_'+algorithm+'.json'
+    with open(param_tune) as f:
+        tune_vals = json.load(f)
+    return params,tune_vals 
 
 
 def get_param_count(net):
@@ -250,7 +255,7 @@ class ProgressMeter:
 
         if paramTuning:
             startFile += 'paramTune/'
-            
+
         if resultsFileName is None:
             self.resultsFileName = startFile+'results_'+dt_string
         else:
