@@ -1,5 +1,6 @@
 import argparse
 import os
+import numpy as np
 
 
 #distributed
@@ -15,7 +16,7 @@ from distributed import init_workers
 
 from utils import *
 
-parser = argparse.ArgumentParser(description='Distributed GAN training')
+parser = argparse.ArgumentParser(description='Parameter tuning code')
 parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'], help='Specify the distributed backend to use',default='nccl')
 parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='extragrad')
 parser.add_argument('-r','--results',default=None)
@@ -25,7 +26,11 @@ parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan")
 parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"],default="fbf_paper")
 parser.add_argument('--clip_amount',default=0.01,type=float)
 parser.add_argument('--moreFilters', action='store_true')
-parser.add_argument('--num_epochs', type=int,default=600)
+parser.add_argument('--num_epochs', type=int,default=50)
+parser.add_argument('-tv','--tuning_variable', choices=['gamma','lr_dis'])
+parser.add_argument('-tmin','--tune_min', type=int)
+parser.add_argument('-tmax','--tune_max', type=int)
+parser.add_argument('-tn','--tune_num', type=int)
 
 
 args = parser.parse_args()
@@ -45,8 +50,6 @@ else:
     raise NotImplementedError()
 
 params = read_config_file(args.algorithm)
-args.paramTuning = False
-args.tuneVal = None
 
 def main():
     global_rank, world_size = init_workers(args.distributed_backend)
@@ -57,6 +60,11 @@ def main():
 
     results = {}
     if global_rank==0:
+        print("parameter tuning")
+        print(f"tuning variable: {args.tuning_variable}")
+        print(f"tmin: {args.tune_min}")
+        print(f"tmax: {args.tune_max}")
+        print(f"tn: {args.tune_num}")
         print('pytorch version : ', torch.__version__)
         print('WORLD SIZE:', world_size)
         print('The number of nodes : ', node_num)
@@ -81,11 +89,7 @@ def main():
         results['moreFilters']=args.moreFilters
 
 
-
-
-    print('Local Rank : ', local_rank)
-    print('Global Rank : ', global_rank)
-
+    tuneVarVals = np.logspace(args.tune_min,args.tune_max,args.tune_num)
 
     netG,netD,nz = get_models(args.which_model,args.moreFilters)
     dataset = get_data(args.which_data)
@@ -98,9 +102,20 @@ def main():
         print(f"Generator size (MB): {4*nParamsG/(1e6):.4f}")
 
 
-    main_worker(global_rank,local_rank,world_size,netG,netD,
-                dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,
-                args,params)
+    args.paramTuning = True
+    for tuneVal in tuneVarVals:
+        if args.tuning_variable == "gamma":
+            params.gamma = tuneVal
+        elif args.tuning_variable == "lr_dis":
+            params.lr_dis_step = tuneVal
+            params.lr_gen_step = 0.1*tuneVal
+
+        print(f"\n\n starting tuning val {tuneVal} for {args.tuning_variable}...\n\n")
+
+        args.tuneVal = tuneVal
+        main_worker(global_rank,local_rank,world_size,netG,netD,
+                dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,
+                results,args,params)
 
 
 

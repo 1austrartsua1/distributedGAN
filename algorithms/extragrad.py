@@ -24,42 +24,9 @@ from optim.OptimExtragrad import ExtraAdam, ExtraSGD
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
-                dataset, nz, loss_type, sampler_option, clip_amount, results, args):
+                dataset, nz, loss_type, sampler_option, clip_amount, results
+                , args, params):
 
-    # distributed stuff
-    #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
-    #local_rank is the device id for the GPU associated with this process.
-    #world_size is used in averaging gradients, dist train sampler
-    now=datetime.now()
-    dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
-
-    tstart = time.time()
-
-    #################################################################################
-    ########################### Param settings ######################################
-    #################################################################################
-    # Set random seed for reproducibility
-    set_seed = False
-    # Number of workers for dataloader
-    workers = 1
-    # Batch size during training
-    batch_size = 64
-    # Number of training epochs
-    num_epochs = 600
-    num_iterations = float('inf')
-    # Learning rate for optimizers
-    lr_dis = 2e-4
-    lr_gen = 2e-5
-    update = "adam"
-    # Beta1, beta2 hyperparam for Adam optimizers
-    beta1 = 0.5
-    beta2 = 0.9
-    # new means get a new minibatch for the optimizer.step,
-    # stale means use the same minibatch for extrapolate and step
-    stale = True
-    #################################################################################
-    ########################### END Param settings ##################################
-    #################################################################################
     #################################################################################
     ########################### Control settings ####################################
     #################################################################################
@@ -75,11 +42,22 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     ########################### End Control settings ################################
     #################################################################################
 
-    results['batch_size'] = batch_size
-    param_setting_str = f"batch_size:{batch_size},lr_dis:{lr_dis},lr_gen:{lr_gen},beta1:{beta1},beta2:{beta2},stale:{stale},workers:{workers},"
-    param_setting_str += f"update:{update}"
+    now=datetime.now()
+    dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
 
-    if set_seed:
+    tstart = time.time()
+
+    if params.num_iterations == "None":
+        num_iterations = float('inf')
+    else:
+        num_iterations = params.num_iterations
+
+    results['batch_size'] = params.batch_size
+    param_setting_str = f"batch_size:{params.batch_size},lr_dis:{params.lr_dis},"
+    param_setting_str += f"lr_gen:{params.lr_gen},beta1:{params.beta1},beta2:{params.beta2},stale:{params.stale},workers:{params.workers},"
+    param_setting_str += f"adam_updates:{params.adam_updates}"
+
+    if params.set_seed:
         manualSeed = 999
         #manualSeed = random.randint(1, 10000) # use if you want new results
         print("Random Seed: ", manualSeed)
@@ -92,8 +70,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, world_size, global_rank)
 
     # Create the dataloader
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                             shuffle=False, num_workers=workers,
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=params.batch_size,
+                                             shuffle=False, num_workers=params.workers,
                                              pin_memory=True,sampler=train_sampler)
 
     torch.cuda.set_device(local_rank)
@@ -118,12 +96,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     # Setup optimizers for both G and D
 
-    if update == "adam":
-        optimizerD = ExtraAdam(netD.parameters(), lr=lr_dis, betas=(beta1, beta2))
-        optimizerG = ExtraAdam(netG.parameters(), lr=lr_gen, betas=(beta1, beta2))
+    if params.adam_updates == True:
+        optimizerD = ExtraAdam(netD.parameters(), lr=params.lr_dis, betas=(params.beta1, params.beta2))
+        optimizerG = ExtraAdam(netG.parameters(), lr=params.lr_gen, betas=(params.beta1, params.beta2))
     else:
-        optimizerD = ExtraSGD(netD.parameters(), lr=lr_dis)
-        optimizerG = ExtraSGD(netG.parameters(), lr=lr_gen)
+        optimizerD = ExtraSGD(netD.parameters(), lr=params.lr_dis)
+        optimizerG = ExtraSGD(netG.parameters(), lr=params.lr_gen)
 
 
     # Training Loop
@@ -135,11 +113,11 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     if global_rank==0:
         print("Starting Training Loop...")
-        progressMeter = ProgressMeter(n_samples,nz,netG,num_epochs,
+        progressMeter = ProgressMeter(n_samples,nz,netG,params.num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
                                       getISscore,args.results,getFIDscore,path2FIDstats,
-                                      args.moreChannels)
+                                      args.moreFilters,args.paramTuning)
 
         if not getFirstScore:
             progressMeter.getISscore = False
@@ -150,9 +128,9 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         progressMeter.getFIDscore = getFIDscore
 
     tepoch = time.time()
-    while (forward_steps < 2*num_iterations) and (epoch < num_epochs):
+    while (forward_steps < 2*num_iterations) and (epoch < params.num_epochs):
 
-        if (forward_steps%2==0) or (stale==False):
+        if (forward_steps%2==0) or (params.stale==False):
             data,newEpoch = minibatch.get()
             epoch += int(newEpoch)
         ############################
@@ -257,6 +235,13 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")
             print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
-                  % (epoch,num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
+                  % (epoch,params.num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
 
             tepoch = time.time()
+
+
+    if global_rank == 0:
+        tepoch = time.time()-tepoch
+        ttot = time.time() - tstart
+        progressMeter.record(forward_steps,epoch,errD,errG,netG,final=True)
+        progressMeter.save(ttot,tepoch,final=True,paramTuneVal=args.tuneVal)

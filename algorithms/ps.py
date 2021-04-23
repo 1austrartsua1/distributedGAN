@@ -25,49 +25,8 @@ from optim.OptimPS import PS_Adam, PS_SGD
 
 
 def main_worker(global_rank, local_rank, world_size, netG, netD,
-                dataset, nz, loss_type, sampler_option, clip_amount, results, args):
-
-    # distributed stuff
-    #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
-    #local_rank is the device id for the GPU associated with this process.
-    #world_size is used in averaging gradients, dist train sampler
-    now=datetime.now()
-    dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
-
-    tstart = time.time()
-
-    #################################################################################
-    ########################### Param settings ######################################
-    #################################################################################
-    # Set random seed for reproducibility
-    set_seed = False
-    # Number of workers for dataloader
-    workers = 1
-    # Batch size during training
-    batch_size = 64
-    # Number of training epochs
-    num_epochs = 600
-    num_iterations = float('inf')
-    # Learning rate for optimizers
-    lr_dis_step = 2e-4
-    lr_gen_step = 2e-5
-    lr_dis_extrap = None
-    lr_gen_extrap = None
-    adam_updates = True
-    # Beta1, beta2 hyperparam for Adam optimizers
-    beta1 = 0.5
-    beta2 = 0.9
-    # new means get a new minibatch for the optimizer.step,
-    # stale means use the same minibatch for extrapolate and step
-    stale = True
-    # in the reduce in ps, normally it is not an average, however one can also do
-    # an average. This is simply equivalent to dividing the learning rate for the step()
-    # by world_size
-    av_reduce = True
-    clip_on_extrapolate = False
-    #################################################################################
-    ########################### END Param settings ##################################
-    #################################################################################
+                dataset, nz, loss_type, sampler_option, clip_amount, results,
+                 args, params):
     #################################################################################
     ########################### Monitoring settings #################################
     #################################################################################
@@ -83,43 +42,72 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     ########################### END Monitoring settings #############################
     #################################################################################
 
+    # distributed stuff
+    #global_rank is used for dist train_sampler and printing (only want global_rank=0 to print)
+    #local_rank is the device id for the GPU associated with this process.
+    #world_size is used in averaging gradients, dist train sampler
+    now=datetime.now()
+    dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
 
-    results['batch_size'] = batch_size
-    param_setting_str = f"batch_size:{batch_size},lr_dis_step:{lr_dis_step:.4f},"
+    tstart = time.time()
+
+    if params.num_iterations == "None":
+        num_iterations = float('inf')
+    else:
+        num_iterations = params.num_iterations
+
+
+    if params.lr_dis_extrap=="None":
+        lr_dis_extrap = None
+    else:
+        lr_dis_extrap = params.lr_dis_extrap
+    if params.lr_gen_extrap=="None":
+        lr_gen_extrap = None
+    else:
+        lr_gen_extrap = params.lr_gen_extrap
+
+
+
+    results['batch_size'] = params.batch_size
+    param_setting_str = f"batch_size:{params.batch_size},lr_dis_step:{params.lr_dis_step:.4f},"
     if lr_dis_extrap:
         param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap:.4f},\n"
     else:
         param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap},\n"
-    param_setting_str += f"lr_gen_step:{lr_gen_step:.4f},"
+    param_setting_str += f"lr_gen_step:{params.lr_gen_step:.4f},"
     if lr_gen_extrap:
         param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap:.4f},"
     else:
         param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
 
-    param_setting_str += f"stale:{stale},workers:{workers},av_reduce:{av_reduce}\n"
-    param_setting_str += f"clip_on_extrapolate:{clip_on_extrapolate},adam_updates:{adam_updates}\n"
-    param_setting_str += f"beta1:{beta1},beta2:{beta2}"
+    param_setting_str += f"stale:{params.stale},workers:{params.workers},av_reduce:{params.av_reduce}\n"
+    param_setting_str += f"clip_on_extrapolate:{params.clip_on_extrapolate},adam_updates:{params.adam_updates}\n"
+    param_setting_str += f"beta1:{params.beta1},beta2:{params.beta2},num_epochs:{args.num_epochs}"
+    param_setting_str+= f"useDistributedSampler:{params.useDistributedSampler}"
 
-    if global_rank==0: print(param_setting_str)
+    if (global_rank==0): print(param_setting_str)
 
-    if set_seed:
+    if params.set_seed:
         manualSeed = 999
         #manualSeed = random.randint(1, 10000) # use if you want new results
         print("Random Seed: ", manualSeed)
         #random.seed(manualSeed)
         torch.manual_seed(manualSeed)
 
-    if av_reduce:
+    if params.av_reduce:
         divide_by = world_size
     else:
         divide_by = 1.0
 
     # create the sampler used for distributed training
-    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, world_size, global_rank)
+    if params.useDistributedSampler:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, world_size, global_rank)
+    else:
+        train_sampler = None
 
     # Create the dataloader
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                             shuffle=False, num_workers=workers,
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=params.batch_size,
+                                             shuffle=(params.useDistributedSampler==False), num_workers=params.workers,
                                              pin_memory=True,sampler=train_sampler)
 
     torch.cuda.set_device(local_rank)
@@ -143,12 +131,14 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     fixed_noise = sampler(64,nz,sampler_option).cuda()
 
     # Setup Adam optimizers for both G and D
-    if adam_updates:
-        optimizerD = PS_Adam(netD.parameters(), lr_step=lr_dis_step,lr_extrap=lr_dis_extrap, betas=(beta1, beta2))
-        optimizerG = PS_Adam(netG.parameters(), lr_step=lr_gen_step,lr_extrap=lr_gen_extrap, betas=(beta1, beta2))
+    if params.adam_updates:
+        optimizerD = PS_Adam(netD.parameters(), lr_step=params.lr_dis_step,
+                            lr_extrap=lr_dis_extrap, betas=(params.beta1, params.beta2),smartProj=params.smartProj)
+        optimizerG = PS_Adam(netG.parameters(), lr_step=params.lr_gen_step,
+                            lr_extrap=lr_gen_extrap, betas=(params.beta1, params.beta2),smartProj = params.smartProj)
     else:
-        optimizerD = PS_SGD(netD.parameters(), lr_step=lr_dis_step,lr_extrap=lr_dis_extrap)
-        optimizerG = PS_SGD(netG.parameters(), lr_step=lr_gen_step,lr_extrap=lr_gen_extrap)
+        optimizerD = PS_SGD(netD.parameters(), lr_step=params.lr_dis_step,lr_extrap=lr_dis_extrap)
+        optimizerG = PS_SGD(netG.parameters(), lr_step=params.r_gen_step,lr_extrap=lr_gen_extrap)
 
     # Training Loop
     forward_steps = 0
@@ -159,26 +149,27 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     if global_rank==0:
         print("Starting Training Loop...")
-        progressMeter = ProgressMeter(n_samples,nz,netG,num_epochs,
+        progressMeter = ProgressMeter(n_samples,nz,netG,args.num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
                                       getISscore, args.results,getFIDscore,path2FIDstats,
-                                      args.moreChannels)
+                                      args.moreFilters,args.paramTuning)
 
 
-        if not getFirstScore:
+        if (not getFirstScore) or args.paramTuning:
             progressMeter.getISscore = False
             progressMeter.getFIDscore = False
 
         progressMeter.record(forward_steps,epoch,errD,errG,netG)
-        progressMeter.getISscore = getISscore
+        progressMeter.getISscore = getISscore or args.paramTuning
         progressMeter.getFIDscore = getFIDscore
 
 
-    tepoch = time.time()
-    while (forward_steps < 2*num_iterations) and (epoch < num_epochs):
 
-        if (forward_steps%2==0) or (stale==False):
+    tepoch = time.time()
+    while (forward_steps < 2*num_iterations) and (epoch < args.num_epochs):
+
+        if (forward_steps%2==0) or (params.stale==False):
             data,newEpoch = minibatch.get()
             epoch += int(newEpoch)
         ############################
@@ -258,11 +249,20 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             # Update D
             optimizerD.extrapolate()
 
-            if clip_on_extrapolate:
+            if params.clip_on_extrapolate:
                 clip(netD,clip_amount)
         else:
             # for sync projective splitting, only perform the all-reduce
             # before a step() update, not before extrapolate().
+
+            hplane = optimizerG.calculate_hplane()
+            hplane += optimizerD.calculate_hplane()
+
+            if hplane<0:
+                nLessThanZero += 1
+
+            optimizerG.smart_proj(hplane)
+            optimizerD.smart_proj(hplane)
 
             # average discriminator gradients across workers
             av_grad(netD,divide_by)
@@ -284,6 +284,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             p.requires_grad = True
 
         if (global_rank==0) and newEpoch:
+
             newEpoch = False
             tepoch = time.time()-tepoch
             if (epoch+1) % IS_eval_freq == 0:
@@ -292,5 +293,11 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")
             print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
-            % (epoch,num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
+            % (epoch,args.num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
             tepoch = time.time()
+
+    if global_rank==0:
+        tepoch = time.time()-tepoch
+        ttot = time.time() - tstart
+        progressMeter.record(forward_steps,epoch,errD,errG,netG,final=True)
+        progressMeter.save(ttot,tepoch,final=True,paramTuneVal=args.tuneVal)

@@ -5,7 +5,8 @@ import torchvision.transforms as transforms
 import numpy as np
 import time
 import pickle
-
+import json
+import argparse
 
 #locals
 import inception_score as iscore
@@ -14,13 +15,14 @@ import models
 
 from pytorch_fid.fid_score import calculate_activation_statistics_kaggle, calculate_frechet_distance
 
+def read_config_file(algorithm):
+    config = "config/"+algorithm+'/active_'+algorithm+'.json'
+    with open(config) as f:
+        data = json.load(f)
+    params = argparse.Namespace(**data)
+    return params
 
 
-#def calculate_frechet(gen):
-#    mu_2,std_2=calculate_activation_statistics(images_fake,inception_model,cuda=None)
-
-#    fid_value = calculate_frechet_distance(mu_1, std_1, mu_2, std_2)
-#    return fid_value
 def get_param_count(net):
     nparams = 0
     for p in net.parameters():
@@ -28,17 +30,17 @@ def get_param_count(net):
     return nparams
 
 
-def get_models(which_model,moreChannels):
+def get_models(which_model,moreFilters):
 
     if which_model == "resnet_fbf_paper":
         nz = 128
         nc = 3
-        if moreChannels:
+        if moreFilters:
+            ngf = 256
+            ndf = 256
+        else:
             ngf = 128
             ndf = 128
-        else:
-            ngf = 64
-            ndf = 64
 
         batch_norm_g = True
 
@@ -51,9 +53,9 @@ def get_models(which_model,moreChannels):
         netD.apply(weight_init_fbf_paper)
 
     elif which_model == "dcgan_fbf_paper":
-        if moreChannels:
-            ngf = 128
-            ndf = 128
+        if moreFilters:
+            ngf = 256
+            ndf = 256
         else:
             ngf = 64
             ndf = 64
@@ -229,7 +231,8 @@ class Minibatch:
 class ProgressMeter:
     def __init__(self,n_samples,nz,netG,num_epochs,dataloader,results,eval_freq,
                  sampler_option,clip_amount,param_setting_str,dt_string,getISscore,
-                 resultsFileName,getFIDscore,path2FIDstats,moreChannels):
+                 resultsFileName,getFIDscore,path2FIDstats,moreFilters,paramTuning):
+        self.paramTuning = paramTuning
         self.n_samples = n_samples
         self.nz = nz
         self.netG = netG
@@ -240,10 +243,14 @@ class ProgressMeter:
         self.results['sampler_option']=sampler_option
         self.results['clip_amount'] = clip_amount
         self.results['param_setting_str'] = param_setting_str
-        if moreChannels:
-            startFile = 'results/moreChannels/'
+        if moreFilters:
+            startFile = 'results/moreFilters/'
         else:
             startFile = 'results/'
+
+        if paramTuning:
+            startFile += 'paramTune/'
+            
         if resultsFileName is None:
             self.resultsFileName = startFile+'results_'+dt_string
         else:
@@ -273,7 +280,10 @@ class ProgressMeter:
 
         self.t0 = time.time()
 
-    def record(self,forward_steps,epoch,errD,errG,netG):
+    def record(self,forward_steps,epoch,errD,errG,netG,final=False):
+        if (not final) and self.paramTuning:
+            return
+
         self.t0 = time.time() - self.t0
         if self.getISscore:
             iscore,t_iscore = get_inception_score(self.n_samples,self.nz,self.netG)
@@ -306,17 +316,28 @@ class ProgressMeter:
         self.G_losses.append(errG)
         self.D_losses.append(errD)
 
-    def save(self,ttot,tepoch):
-        self.epoch_running_times.append(tepoch)
-        self.results['epoch_running_times'] = self.epoch_running_times
-        self.results['forwardStepStamps']=self.forwardStepStamps
-        self.results['iscores']=self.iscores
-        self.results['timestamps']=self.timestamps[1:]
-        self.results['num_epochs']=self.num_epochs
-        self.results['G_losses']=self.G_losses
-        self.results['D_losses']=self.D_losses
-        self.results['epochStamps']=self.epochStamps
-        self.results['total_running_time']=ttot
+    def save(self,ttot,tepoch,final=False,paramTuneVal=None):
+        if (not final) and self.paramTuning:
+            return
+
+        if self.paramTuning:
+            self.results['forwardStepStamps_'+str(paramTuneVal)]=self.forwardStepStamps
+            self.results['iscores_'+str(paramTuneVal)]=self.iscores
+            self.results['timestamps_'+str(paramTuneVal)]=self.timestamps[1:]
+        else:
+
+            self.epoch_running_times.append(tepoch)
+            self.results['epoch_running_times'] = self.epoch_running_times
+            self.results['forwardStepStamps']=self.forwardStepStamps
+            self.results['iscores']=self.iscores
+            self.results['timestamps']=self.timestamps[1:]
+            self.results['num_epochs']=self.num_epochs
+            self.results['G_losses']=self.G_losses
+            self.results['D_losses']=self.D_losses
+            self.results['epochStamps']=self.epochStamps
+            self.results['total_running_time']=ttot
+
+
 
         with open(self.resultsFileName, 'wb') as handle:
             pickle.dump(self.results, handle)

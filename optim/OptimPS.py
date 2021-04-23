@@ -38,9 +38,10 @@ class PS(Optimizer):
         defaults: (dict): a dict containing default values of optimization
             options (used when a parameter group doesn't specify them).
     """
-    def __init__(self, params, defaults):
+    def __init__(self, params, defaults, smartProj=False):
         super(PS, self).__init__(params, defaults)
         self.params_copy = []
+        self.smartProj = smartProj
 
     def update(self, p, group, update_type):
         raise NotImplementedError
@@ -55,13 +56,30 @@ class PS(Optimizer):
                 u = self.update(p, group, "extrap")
                 if is_empty:
                     # Save the current parameters for the update step.
-                    # Several extrapolation step can be made before each update
-                    # but only the parameters before the first extrapolation step are saved.
+                    # In PS notation, params_copy holds z^k
+                    # the current parameters themselves hold x_i^k
                     self.params_copy.append(p.data.clone())
                 if u is None:
                     continue
                 # Update the current parameters
                 p.data.add_(u)
+
+    def calculate_hplane(self):
+        if not self.smartProj:
+            return 0.0
+
+        i = -1
+        hplane = 0.0
+        for group in self.param_groups:
+            for p in group['params']:
+                i+= 1
+                hplane += torch.sum((self.params_copy[i].data - p.data)*p.grad.data)
+
+        return hplane
+
+    def smart_proj(self,hplane):
+        if self.smartProj and (hplane < 0):
+            self.zero_grad()
 
     def step(self, closure=None):
         """Performs a single optimization step.
@@ -141,7 +159,7 @@ class PS_SGD(PS):
 
         The Nesterov version is analogously modified.
     """
-    def __init__(self, params, lr_step, lr_extrap=None):
+    def __init__(self, params, lr_step, lr_extrap=None,smartProj=False):
         if lr_step < 0.0:
             raise ValueError("Invalid learning rate: {}".format(lr_step))
 
@@ -153,7 +171,7 @@ class PS_SGD(PS):
             lr_extrap = lr_step
         defaults = dict(lr_step=lr_step, lr_extrap=lr_extrap)
 
-        super(PS_SGD, self).__init__(params, defaults)
+        super(PS_SGD, self).__init__(params, defaults,smartProj)
 
     def __setstate__(self, state):
         super(PS_SGD, self).__setstate__(state)
@@ -185,7 +203,7 @@ class PS_Adam(PS):
     """
 
     def __init__(self, params, lr_step=1e-3, lr_extrap=None, betas=(0.9, 0.999), eps=1e-8,
-                 amsgrad=False):
+                 amsgrad=False,smartProj=False):
         if not 0.0 <= lr_step:
             raise ValueError("Invalid learning rate: {}".format(lr_step))
         if (lr_extrap is not None) and (not 0.0 <= lr_extrap):
@@ -202,7 +220,7 @@ class PS_Adam(PS):
 
         defaults = dict(lr_step=lr_step,lr_extrap=lr_extrap, betas=betas, eps=eps,
                         amsgrad=amsgrad)
-        super(PS_Adam, self).__init__(params, defaults)
+        super(PS_Adam, self).__init__(params, defaults,smartProj)
 
     def __setstate__(self, state):
         super(PS_Adam, self).__setstate__(state)

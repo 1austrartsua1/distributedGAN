@@ -319,7 +319,9 @@ class PS_Adam(PS):
 
         if not self.AdamForDuals:
             for i in range(len(params_av)):
+                #print(f"update norm: {torch.norm(self.lr_dual*(self.params_copy[i].data - params_av[i].data))}")
                 self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - params_av[i].data)
+                #print(f"dual norm: {torch.norm(self.wi[i].data)}")
             return
 
         beta1 = self.dual_beta1

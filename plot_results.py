@@ -74,8 +74,8 @@ def get_a_plot(file,plotType,label,commsPerForwardStep=None):
 
 if __name__ == "__main__":
 
-    get_a_plot("moreChannels/psd/psd2","time","psd:2*64",1)
-    get_a_plot("moreChannels/psd/psd2_adamDuals","time","psd-adamduals:2*64",1)
+    get_a_plot("moreFilters/psd/ps8","time","psd:8*64",1)
+    get_a_plot("moreFilters/extragrad/eg8","time","eg:8*64",2)
 
 
 
