@@ -69,16 +69,14 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
 
     results['batch_size'] = params.batch_size
-    param_setting_str = f"batch_size:{params.batch_size},lr_dis_step:{params.lr_dis_step:.4f},"
-    if lr_dis_extrap:
-        param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap:.4f},\n"
-    else:
-        param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap},\n"
-    param_setting_str += f"lr_gen_step:{params.lr_gen_step:.4f},"
-    if lr_gen_extrap:
-        param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap:.4f},"
-    else:
-        param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
+    param_setting_str = f"batch_size:{params.batch_size},lr_dis_step:{params.lr_dis_step},"
+
+    param_setting_str+=f"lr_dis_extrap:{lr_dis_extrap:},\n"
+
+    param_setting_str += f"lr_gen_step:{params.lr_gen_step},"
+
+    param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
+
 
     param_setting_str += f"stale:{params.stale},workers:{params.workers},av_reduce:{params.av_reduce}\n"
     param_setting_str += f"clip_on_extrapolate:{params.clip_on_extrapolate},adam_updates:{params.adam_updates}\n"

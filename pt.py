@@ -1,6 +1,7 @@
 import argparse
 import os
 import numpy as np
+import time
 
 
 #distributed
@@ -53,6 +54,8 @@ for key in tune_vals:
     break
 
 def main():
+    t_pt = time.time()
+
     global_rank, world_size = init_workers(args.distributed_backend)
 
     ranks_per_node = torch.cuda.device_count()
@@ -117,6 +120,11 @@ def main():
         main_worker(global_rank,local_rank,world_size,netG,netD,
                 dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,
                 results,args,params)
+
+
+    if global_rank==0:
+        t_pt = time.time()-t_pt
+        print(f"\n\ntotal param tuning time: {t_pt}\n\n")
 
 
 

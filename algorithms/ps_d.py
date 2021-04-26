@@ -143,24 +143,24 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     if global_rank==0:
         print("Starting Training Loop...")
-        progressMeter = ProgressMeter(n_samples,nz,netG,params.num_epochs,
+        progressMeter = ProgressMeter(n_samples,nz,netG,args.num_epochs,
                                       dataloader,results,IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
                                       getISscore, args.results,getFIDscore,path2FIDstats
-                                      ,args.moreChannels)
+                                      ,args.moreFilters,args.paramTuning)
 
 
-        if not getFirstScore:
+        if (not getFirstScore) or args.paramTuning:
             progressMeter.getISscore = False
             progressMeter.getFIDscore = False
 
         progressMeter.record(forward_steps,epoch,errD,errG,netG)
-        progressMeter.getISscore = getISscore
+        progressMeter.getISscore = getISscore or args.paramTuning
         progressMeter.getFIDscore = getFIDscore
 
 
     tepoch = time.time()
-    while (forward_steps < 2*num_iterations) and (epoch < params.num_epochs):
+    while (forward_steps < 2*num_iterations) and (epoch < args.num_epochs):
 
         if (forward_steps%2==0) or (params.stale==False):
             data,newEpoch = minibatch.get()
@@ -280,5 +280,12 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                 progressMeter.save(ttot,tepoch)
             print(f"epoch {epoch} time = {tepoch}")
             print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
-            % (epoch,params.num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
+            % (epoch,args.num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
             tepoch = time.time()
+
+
+    if global_rank==0:
+        tepoch = time.time()-tepoch
+        ttot = time.time() - tstart
+        progressMeter.record(forward_steps,epoch,errD,errG,netG,final=True)
+        progressMeter.save(ttot,tepoch,final=True,paramTuneVal=args.tuneVal)

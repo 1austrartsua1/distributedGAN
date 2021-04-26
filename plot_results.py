@@ -2,6 +2,7 @@
 
 import pickle
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def print_a_res(file):
@@ -72,13 +73,64 @@ def get_a_plot(file,plotType,label,commsPerForwardStep=None):
     return
 
 
+def plot_a_scaling_result(fileStart,listOfFiles,label,pos):
+    fsteps = []
+    ws = []
+    for file in listOfFiles:
+        if type(file) is int:
+            forwardStepsPerSecondPerGPU = 0
+            worldsize = file
+        else:
+
+            with open(fileStart+file, 'rb') as handle:
+                res = pickle.load(handle)
+
+                total_forward_steps = res['forwardStepStamps'][-1]
+                worldsize = res['world_size']
+                totalActiveRuntime = res['timestamps'][-1]
+                forwardStepsPerSecondPerGPU = total_forward_steps/totalActiveRuntime
+
+
+        fsteps.append(forwardStepsPerSecondPerGPU)
+        ws.append(str(worldsize))
+
+    ind = np.arange(len(listOfFiles))
+    width = 0.35
+
+
+    plt.bar(ind+width*pos,fsteps,width,label=label)
+
+    plt.xticks(ind+width/2,ws)
+
+
+
+
 if __name__ == "__main__":
 
-    get_a_plot("moreFilters/psd/ps8","time","psd:8*64",1)
-    get_a_plot("moreFilters/extragrad/eg8","time","eg:8*64",2)
-
-
-
-    plt.grid()
+    fileStart = "results/moreFilters/extragrad/"
+    listOfFiles = ['eg8','eg16','eg32']
+    label = "extragrad"
+    plot_a_scaling_result(fileStart,listOfFiles,label,0)
+    fileStart = "results/moreFilters/ps/"
+    # list of files has to be in right order
+    # if missing a result put the worldsize for that missing result 
+    listOfFiles = [8,'ps16','ps32']
+    label = "ps"
+    plot_a_scaling_result(fileStart,listOfFiles,label,1)
     plt.legend()
     plt.show()
+
+
+if __name__ == "__main__2":
+
+
+
+    calculate_scaling_result("moreFilters/ps/ps16")
+    calculate_scaling_result("moreFilters/extragrad/eg16")
+
+
+    #get_a_plot("moreFilters/ps/ps32MF_lrf","time","ps:32*64",1)
+    #get_a_plot("moreFilters/extragrad/eg32MF","time","eg:32*64",2)
+    #plt.grid()
+    #plt.legend()
+    #plt.show()

@@ -20,7 +20,33 @@ def av_grad(model, world_size):
             print("Got a gradient which is None:")
             print(name)
 
+class GradAverager:
+    def __init__(self,net):
+        ln = 0
+        # work out size of the buffer
+        for param in net.parameters():
+            ln += np.prod(param.shape)
+        self.buffer = torch.empty(ln,requires_grad=False)
 
+    def av_grad(self,net, world_size):
+        #flatten each param tensor and copy to buffer
+        i = 0
+        for param in net.parameters():
+            x = torch.flatten(param.grad)
+            self.buffer.data[i:i+len(x)] = x.data
+            i += len(x)
+
+        # all-reduce once for the buffer
+        dist.all_reduce(self.buffer.data, op=dist.ReduceOp.SUM)
+        self.buffer.data /= world_size
+
+        # copy buffer back to the param tensors.
+        i = 0
+        for param in net.parameters():
+            ln = np.prod(param.shape)
+            x = self.buffer.data[i:i+ln]
+            param.grad.data = torch.reshape(x,param.size()).data
+            i += ln
 
 
 
