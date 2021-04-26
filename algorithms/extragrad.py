@@ -18,7 +18,7 @@ import matplotlib.animation as animation
 import torch.utils.data.distributed
 
 # locals
-from utils_distributed import av_param,av_grad,av_loss
+from utils_distributed import av_param,av_loss
 from utils import compute_gan_loss,sampler,clip,Minibatch,ProgressMeter
 from optim.OptimExtragrad import ExtraAdam, ExtraSGD
 
@@ -26,21 +26,6 @@ from optim.OptimExtragrad import ExtraAdam, ExtraSGD
 def main_worker(global_rank, local_rank, world_size, netG, netD,
                 dataset, nz, loss_type, sampler_option, clip_amount, results
                 , args, params):
-
-    #################################################################################
-    ########################### Control settings ####################################
-    #################################################################################
-    IS_eval_freq = 12 # for FID/IS, how many epochs between calculation of IS
-    # note IS calculation takes about 60 sec, so don't want to necessarily do it
-    # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
-    n_samples = 50000 # for FID/IS
-    getISscore = True
-    getFIDscore = False
-    getFirstScore = True
-    path2FIDstats = None
-    #################################################################################
-    ########################### End Control settings ################################
-    #################################################################################
 
     now=datetime.now()
     dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
@@ -55,7 +40,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     results['batch_size'] = params.batch_size
     param_setting_str = f"batch_size:{params.batch_size},lr_dis:{params.lr_dis},"
     param_setting_str += f"lr_gen:{params.lr_gen},beta1:{params.beta1},beta2:{params.beta2},stale:{params.stale},workers:{params.workers},"
-    param_setting_str += f"adam_updates:{params.adam_updates}"
+    param_setting_str += f"adam_updates:{params.adam_updates}\n"
+    param_setting_str += f"chunk_reduce:{args.chunk_reduce}"
 
     if params.set_seed:
         manualSeed = 999
@@ -64,7 +50,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         #random.seed(manualSeed)
         torch.manual_seed(manualSeed)
 
-    if global_rank==0: print(param_setting_str)
+    if global_rank==0:
+        print("\n\n")
+        print(param_setting_str)
+        print("\n\n")
 
     # create the sampler used for distributed training
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, world_size, global_rank)
@@ -83,6 +72,14 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     av_param(netG,world_size)
 
     netD = netD.cuda()
+
+
+    if args.chunk_reduce:
+        from utils_distributed import GradAverager as GA
+        ga_G = GA(netG)
+        ga_D = GA(netD)
+    else:
+        from utils_distributed import av_grad
 
     # Apply the weights_init function to randomly initialize all weights
     #  to mean=0, stdev=0.2.
@@ -113,19 +110,19 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     if global_rank==0:
         print("Starting Training Loop...")
-        progressMeter = ProgressMeter(n_samples,nz,netG,params.num_epochs,
-                                      dataloader,results,IS_eval_freq,sampler_option,
+        progressMeter = ProgressMeter(params.n_samples,nz,netG,params.num_epochs,
+                                      dataloader,results,params.IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
-                                      getISscore,args.results,getFIDscore,path2FIDstats,
+                                      params.getISscore,args.results,params.getFIDscore,params.path2FIDstats,
                                       args.moreFilters,args.paramTuning)
 
-        if not getFirstScore:
+        if not params.getFirstScore:
             progressMeter.getISscore = False
             progressMeter.getFIDscore = False
 
         progressMeter.record(forward_steps,epoch,errD,errG,netG)
-        progressMeter.getISscore = getISscore
-        progressMeter.getFIDscore = getFIDscore
+        progressMeter.getISscore = params.getISscore
+        progressMeter.getFIDscore = params.getFIDscore
 
     tepoch = time.time()
     while (forward_steps < 2*num_iterations) and (epoch < params.num_epochs):
@@ -181,7 +178,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         D_on_fake_data = av_loss(D_on_fake_data, b_size)
 
         # average discriminator gradients across workers
-        av_grad(netD,world_size)
+        if args.chunk_reduce:
+            ga_D.av_grad(netD,world_size)
+        else:
+            av_grad(netD,world_size)
 
         ############################
         # (2) Calculate G network gradients
@@ -203,7 +203,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         errG = av_loss(errG, 1.0)
 
         # average G's gradients across workers
-        av_grad(netG,world_size)
+        if args.chunk_reduce:
+            ga_G.av_grad(netG,world_size)
+        else:
+            av_grad(netG,world_size)
 
         if forward_steps%2 == 0:
             #extrapolation
@@ -229,7 +232,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         if (global_rank==0) and newEpoch:
             newEpoch = False
             tepoch = time.time()-tepoch
-            if (epoch+1) % IS_eval_freq == 0:
+            if (epoch+1) % params.IS_eval_freq == 0:
                 progressMeter.record(forward_steps,epoch,errD,errG,netG)
                 ttot = time.time() - tstart
                 progressMeter.save(ttot,tepoch)

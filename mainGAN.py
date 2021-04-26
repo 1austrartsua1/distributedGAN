@@ -26,6 +26,7 @@ parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"]
 parser.add_argument('--clip_amount',default=0.01,type=float)
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=600)
+parser.add_argument('--chunk_reduce', action='store_true')
 
 
 args = parser.parse_args()
@@ -57,6 +58,7 @@ def main():
 
     results = {}
     if global_rank==0:
+        print('\n\n')
         print('pytorch version : ', torch.__version__)
         print('WORLD SIZE:', world_size)
         print('The number of nodes : ', node_num)
@@ -70,6 +72,7 @@ def main():
         print(f"distributed backend: {args.distributed_backend}")
         print(f"moreFilters: {args.moreFilters}")
         print(f"results file: {args.results}")
+        print('\n\n')
         results['which_data']=args.which_data
         results['which_model']=args.which_model
         results['loss_type'] = args.loss_type

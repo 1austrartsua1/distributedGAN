@@ -1,6 +1,7 @@
 
 import torch
 import torch.distributed as dist
+import numpy as np
 
 def av_param(model,world_size):
 
@@ -26,13 +27,13 @@ class GradAverager:
         # work out size of the buffer
         for param in net.parameters():
             ln += np.prod(param.shape)
-        self.buffer = torch.empty(ln,requires_grad=False)
+        self.buffer = torch.empty(ln,requires_grad=False).cuda()
 
     def av_grad(self,net, world_size):
         #flatten each param tensor and copy to buffer
         i = 0
         for param in net.parameters():
-            x = torch.flatten(param.grad)
+            x = torch.flatten(param.grad.data)
             self.buffer.data[i:i+len(x)] = x.data
             i += len(x)
 

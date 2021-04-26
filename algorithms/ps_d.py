@@ -27,22 +27,7 @@ from optim.OptimPSd import PS_Adam, PS_SGD
 def main_worker(global_rank, local_rank, world_size, netG, netD,
                 dataset, nz, loss_type, sampler_option, clip_amount,
                 results, args, params):
-
-    #################################################################################
-    ########################### Control settings ####################################
-    #################################################################################
-    IS_eval_freq = 5 # for FID/IS, how many epochs between calculation of IS
-    # note IS calculation takes about 60 sec, so don't want to necessarily do it
-    # every epoch, since epoch for cifar may be like 30sec. Better to do it every 10 epochs's or so
-    n_samples = 50000 # for FID/IS
-    getISscore = True
-    getFIDscore = False
-    getFirstScore = False
-    path2FIDstats = None
-    #################################################################################
-    ########################### End Control settings ################################
-    #################################################################################
-
+                
     now=datetime.now()
     dt_string = now.strftime("%d_%m_%Y::%H:%M:%S")
 
@@ -78,7 +63,9 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     param_setting_str+=f"lr_gen_extrap:{lr_gen_extrap},"
     param_setting_str += f"stale:{params.stale},workers:{params.workers},av_reduce:{params.av_reduce}\n"
     param_setting_str += f"clip_on_extrapolate:{params.clip_on_extrapolate},adam_updates:{params.adam_updates}\n"
-    param_setting_str += f"beta1:{params.beta1},beta2:{params.beta2},AdamForDuals:{params.AdamForDuals},gamma:{params.gamma}"
+    param_setting_str += f"beta1:{params.beta1},beta2:{params.beta2},AdamForDuals:{params.AdamForDuals},gamma:{params.gamma}\n"
+    param_setting_str+=f"chunk_reduce:{args.chunk_reduce},"
+    param_setting_str+=f"moreFilters:{args.moreFilters},"
 
     if global_rank==0: print(param_setting_str)
 
@@ -143,20 +130,20 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
     if global_rank==0:
         print("Starting Training Loop...")
-        progressMeter = ProgressMeter(n_samples,nz,netG,args.num_epochs,
-                                      dataloader,results,IS_eval_freq,sampler_option,
+        progressMeter = ProgressMeter(params.n_samples,nz,netG,args.num_epochs,
+                                      dataloader,results,params.IS_eval_freq,sampler_option,
                                       clip_amount,param_setting_str,dt_string,
-                                      getISscore, args.results,getFIDscore,path2FIDstats
+                                      params.getISscore, args.results,params.getFIDscore,params.path2FIDstats
                                       ,args.moreFilters,args.paramTuning)
 
 
-        if (not getFirstScore) or args.paramTuning:
+        if (not params.getFirstScore) or args.paramTuning:
             progressMeter.getISscore = False
             progressMeter.getFIDscore = False
 
         progressMeter.record(forward_steps,epoch,errD,errG,netG)
-        progressMeter.getISscore = getISscore or args.paramTuning
-        progressMeter.getFIDscore = getFIDscore
+        progressMeter.getISscore = params.getISscore or args.paramTuning
+        progressMeter.getFIDscore = params.getFIDscore
 
 
     tepoch = time.time()
@@ -249,9 +236,13 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             # before a step() update, not before extrapolate().
 
             # average discriminator gradients across workers
-            av_grad(netD,divide_by)
-            # average G's gradients across workers
-            av_grad(netG,divide_by)
+            if args.chunk_reduce:
+                optimizerG.reduce(divide_by)
+                optimizerD.reduce(divide_by)
+            else:
+                av_grad(netG,divide_by)
+                # average G's gradients across workers
+                av_grad(netD,divide_by)
 
             #step
             # Update G
@@ -262,8 +253,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             # for projective splitting, clip only after the step()
             clip(netD,clip_amount)
 
-            optimizerG.dual_step(world_size)
-            optimizerD.dual_step(world_size)
+            optimizerG.dual_step(world_size,args.chunk_reduce)
+            optimizerD.dual_step(world_size,args.chunk_reduce)
 
 
 
@@ -274,7 +265,7 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
         if (global_rank==0) and newEpoch:
             newEpoch = False
             tepoch = time.time()-tepoch
-            if (epoch+1) % IS_eval_freq == 0:
+            if (epoch+1) % params.IS_eval_freq == 0:
                 progressMeter.record(forward_steps,epoch,errD,errG,netG)
                 ttot = time.time() - tstart
                 progressMeter.save(ttot,tepoch)

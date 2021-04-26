@@ -27,7 +27,7 @@ import math
 import torch
 from torch.optim import Optimizer
 import torch.distributed as dist
-
+import numpy as np
 
 
 class PS(Optimizer):
@@ -43,6 +43,7 @@ class PS(Optimizer):
         super(PS, self).__init__(params, defaults)
         self.params_copy = []
         self.wi = []
+        self.reduce_buffer = []
 
 
 
@@ -73,6 +74,57 @@ class PS(Optimizer):
                 # Update the current parameters
                 p.data.add_(u)
 
+    def reduce(self,world_size):
+        """
+            all-reduces over (x_i,y_i)
+        """
+        # first make a copy of x_i
+        self.params_av = []
+        for group in self.param_groups:
+            for p in group['params']:
+                self.params_av.append(p.data.clone())
+
+        #if ncessary, initialize the reduce_buffer
+        if len(self.reduce_buffer)==0:
+            ln = 0
+            for group in self.param_groups:
+                for p in group['params']:
+                    ln += np.prod(p.data.shape)
+            self.reduce_buffer = torch.empty(2*ln,requires_grad=False).cuda()
+
+        # pack together x_i and y_i into one buffer
+        i = 0
+        for group in self.param_groups:
+            for p in group['params']:
+                x = torch.flatten(p.grad.data)
+                self.reduce_buffer.data[i:i+len(x)] = x.data
+                i += len(x)
+
+        for p in self.params_av:
+            x = torch.flatten(p.data)
+            self.reduce_buffer.data[i:i+len(x)] = x.data
+            i += len(x)
+
+        # perform a single all reduce over buffer
+        dist.all_reduce(self.reduce_buffer.data, op=dist.ReduceOp.SUM)
+        self.reduce_buffer.data /= world_size
+
+        # unpack buffer into params_av and p.grad
+        i = 0
+        for group in self.param_groups:
+            for p in group['params']:
+                ln = np.prod(p.shape)
+                x = self.reduce_buffer.data[i:i+ln]
+                p.grad.data = torch.reshape(x,p.size()).data
+                i += ln
+
+        for p in self.params_av:
+            ln = np.prod(p.shape)
+            x = self.reduce_buffer.data[i:i+ln]
+            p.data = torch.reshape(x,p.size()).data
+            i += ln
+
+
     def primal_step(self, closure=None):
         """Performs a single optimization step.
 
@@ -101,24 +153,25 @@ class PS(Optimizer):
 
         return loss
 
-    def dual_step(self,world_size):
+    def dual_step(self,world_size,chunk_reduce):
         #must be called after primal_step
         # first average x_i to get xbar
-        params_av = []
-        for i in range(len(self.params_copy)):
-            params_av.append(self.params_copy[i].data.clone())
-            dist.all_reduce(params_av[-1].data, op=dist.ReduceOp.SUM)
-            params_av[-1].data /= world_size
+        if not chunk_reduce:
+            self.params_av = []
+            for i in range(len(self.params_copy)):
+                self.params_av.append(self.params_copy[i].data.clone())
+                dist.all_reduce(self.params_av[-1].data, op=dist.ReduceOp.SUM)
+                self.params_av[-1].data /= world_size
 
-        self.update_duals(params_av)
 
+        self.update_duals()
         self.params_copy = []
-        params_av = []
+        self.params_av = []
 
-    def update_duals(self,params_av):
-        for i in range(len(params_av)):
-            self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - params_av[i].data)
-        return
+    def update_duals(self):
+        for i in range(len(self.params_av)):
+            self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - self.params_av[i].data)
+
 
 
 
@@ -315,22 +368,22 @@ class PS_Adam(PS):
 
         return -step_size*exp_avg/denom
 
-    def update_duals(self,params_av):
+    def update_duals(self):
 
         if not self.AdamForDuals:
-            for i in range(len(params_av)):
-                #print(f"update norm: {torch.norm(self.lr_dual*(self.params_copy[i].data - params_av[i].data))}")
-                self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - params_av[i].data)
+            for i in range(len(self.params_av)):
+                #print(f"update norm: {torch.norm(self.lr_dual*(self.params_copy[i].data - self.params_av[i].data))}")
+                self.wi[i].data -= self.lr_dual*(self.params_copy[i].data - self.params_av[i].data)
                 #print(f"dual norm: {torch.norm(self.wi[i].data)}")
             return
 
         beta1 = self.dual_beta1
         beta2 = self.dual_beta2
-        for i in range(len(params_av)):
-            update = self.params_copy[i].data - params_av[i].data
+        for i in range(len(self.params_av)):
+            update = self.params_copy[i].data - self.params_av[i].data
             if self.dualAdamInitializeNeeded:
-                self.dual_exp_avg.append(torch.zeros_like(params_av[i].data))
-                self.dual_exp_avg_sq.append(torch.zeros_like(params_av[i].data))
+                self.dual_exp_avg.append(torch.zeros_like(self.params_av[i].data))
+                self.dual_exp_avg_sq.append(torch.zeros_like(self.params_av[i].data))
 
 
             self.dual_exp_avg[i].mul_(beta1).add_(1 - beta1, update)

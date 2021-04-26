@@ -105,7 +105,7 @@ def plot_a_scaling_result(fileStart,listOfFiles,label,pos):
 
 
 
-if __name__ == "__main__":
+if __name__ == "__main__2":
 
     fileStart = "results/moreFilters/extragrad/"
     listOfFiles = ['eg8','eg16','eg32']
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     plot_a_scaling_result(fileStart,listOfFiles,label,0)
     fileStart = "results/moreFilters/ps/"
     # list of files has to be in right order
-    # if missing a result put the worldsize for that missing result 
+    # if missing a result put the worldsize for that missing result
     listOfFiles = [8,'ps16','ps32']
     label = "ps"
     plot_a_scaling_result(fileStart,listOfFiles,label,1)
@@ -121,16 +121,16 @@ if __name__ == "__main__":
     plt.show()
 
 
-if __name__ == "__main__2":
+if __name__ == "__main__":
 
 
 
-    calculate_scaling_result("moreFilters/ps/ps16")
-    calculate_scaling_result("moreFilters/extragrad/eg16")
+    calculate_scaling_result("extragrad/dm")
+    calculate_scaling_result("extragrad/extragrad2")
 
 
-    #get_a_plot("moreFilters/ps/ps32MF_lrf","time","ps:32*64",1)
-    #get_a_plot("moreFilters/extragrad/eg32MF","time","eg:32*64",2)
-    #plt.grid()
-    #plt.legend()
-    #plt.show()
+    get_a_plot("extragrad/dm","time","eg2:chunk_reduce",1)
+    get_a_plot("extragrad/extragrad2","time","eg2",1)
+    plt.grid()
+    plt.legend()
+    plt.show()
