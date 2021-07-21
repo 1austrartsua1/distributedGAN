@@ -28,6 +28,7 @@ parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"]
 parser.add_argument('--clip_amount',default=0.01,type=float)
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=50)
+parser.add_argument('--chunk_reduce', action='store_true')
 
 
 

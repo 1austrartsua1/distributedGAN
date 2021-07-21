@@ -9,7 +9,9 @@ def print_a_res(file):
     with open('results/'+file, 'rb') as handle:
         res = pickle.load(handle)
 
-    print(res)
+    for key in res.keys():
+        print(f"{key}: {res[key]}")
+
 
 def calculate_scaling_result(file):
     with open('results/'+file, 'rb') as handle:
@@ -29,6 +31,8 @@ def calculate_scaling_result(file):
 
     print(f"totalActiveRuntime={totalActiveRuntime}")
     print(f"forwardStepsPerSecondPerGPU={forwardStepsPerSecondPerGPU}")
+
+    print(f"all reduce fraction of time on av: {res['reduceFracAv']}")
 
 def plot_loss(file,plotType,label):
     with open('results/'+file, 'rb') as handle:
@@ -121,16 +125,28 @@ if __name__ == "__main__2":
     plt.show()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__1":
+    calculate_scaling_result("psd/psd32_f")
 
 
-
-    calculate_scaling_result("extragrad/dm")
-    calculate_scaling_result("extragrad/extragrad2")
-
-
-    get_a_plot("extragrad/dm","time","eg2:chunk_reduce",1)
-    get_a_plot("extragrad/extragrad2","time","eg2",1)
+    get_a_plot("psd/psd32_f","time","psd32",1)
+    get_a_plot("psd/psd2","time","psd2",1)
     plt.grid()
     plt.legend()
     plt.show()
+
+if __name__ == "__main__1":
+    print_a_res("gda/ignore_me")
+    print_a_res("extragrad/extragrad2")
+    get_a_plot("extragrad/extragrad2","time","eg2",2)
+    get_a_plot("gda/ignore_me","time","gda2",2)
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+
+fileStart = "results/extragrad/"
+listOfFiles=['extragrad2','extragrad8','extragrad16','extragrad32']
+plot_a_scaling_result(fileStart,listOfFiles,'extragrad',0)
+plt.legend()
+plt.show()

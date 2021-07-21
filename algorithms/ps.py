@@ -143,6 +143,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
     forward_steps = 0
     newEpoch = False
     epoch = 0
+    treduce_tot = 0.0
+    counter = 1.0
+    reduceFracAv = 0
+
     minibatch = Minibatch(dataloader)
     errD,errG,D_on_real_data,D_on_fake_data = 4*[float("NaN")]
 
@@ -263,6 +267,8 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
             optimizerG.smart_proj(hplane)
             optimizerD.smart_proj(hplane)
 
+            if global_rank == 0: treduce = time.time()
+
             if args.chunk_reduce:
                 ga_D.av_grad(netD,divide_by)
                 ga_G.av_grad(netG,divide_by)
@@ -272,6 +278,10 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
                 av_grad(netD,divide_by)
                 # average G's gradients across workers
                 av_grad(netG,divide_by)
+
+            if global_rank == 0:
+                treduce = time.time() - treduce
+                treduce_tot += treduce
 
 
             #step
@@ -292,17 +302,28 @@ def main_worker(global_rank, local_rank, world_size, netG, netD,
 
             newEpoch = False
             tepoch = time.time()-tepoch
+            print(f"epoch {epoch} time = {tepoch}")
+            print(f"reduce time {treduce_tot}")
+            reduceFracOfRuntime = 100*treduce_tot/tepoch
+            reduceFracAv = (1.0-1.0/counter)*reduceFracAv + reduceFracOfRuntime/counter
+            counter += 1.0
+            print(counter)
+            print(f"reduceFracAv:{reduceFracAv}")
+            print(f"reduce time as a fraction of epoch time = {reduceFracOfRuntime:.4f}%")
+            treduce_tot = 0.0
+
             if (epoch+1) % params.IS_eval_freq == 0:
                 progressMeter.record(forward_steps,epoch,errD,errG,netG)
                 ttot = time.time() - tstart
                 progressMeter.save(ttot,tepoch)
-            print(f"epoch {epoch} time = {tepoch}")
+
             print('[%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
             % (epoch,args.num_epochs,errD,errG,D_on_real_data,D_on_fake_data,float("NaN")))
+
             tepoch = time.time()
 
     if global_rank==0:
         tepoch = time.time()-tepoch
         ttot = time.time() - tstart
         progressMeter.record(forward_steps,epoch,errD,errG,netG,final=True)
-        progressMeter.save(ttot,tepoch,final=True,paramTuneVal=args.tuneVal)
+        progressMeter.save(ttot,tepoch,final=True,paramTuneVal=args.tuneVal,reduceFracAv=reduceFracAv)

@@ -16,97 +16,100 @@ from distributed import init_workers
 from utils import *
 
 parser = argparse.ArgumentParser(description='Distributed GAN training')
-parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'], help='Specify the distributed backend to use',default='nccl')
-parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='extragrad')
-parser.add_argument('-r','--results',default=None)
-parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar')
-parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],default="dcgan_fbf_paper")
-parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan")
+parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'],
+                    help='Specify the distributed backend to use, (default nccl)',default='nccl')
+parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='extragrad',help='default (extragrad)')
+parser.add_argument('-r','--results',default=None,help="results file name")
+parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar',help='default (cifar)')
+parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],
+                    default="dcgan_fbf_paper",help='default (dcgan_fbf_paper)')
+parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan",help='default (wgan)')
 parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"],default="fbf_paper")
-parser.add_argument('--clip_amount',default=0.01,type=float)
+parser.add_argument('--clip_amount',default=0.01,type=float,help='default (0.01)')
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=600)
 parser.add_argument('--chunk_reduce', action='store_true')
 
 
 args = parser.parse_args()
-
-
-if args.algorithm == "fbf":
-    from algorithms.fbf import main_worker
-elif args.algorithm == "gda":
-    from algorithms.gda import main_worker
-elif args.algorithm == "extragrad":
-    from algorithms.extragrad import main_worker
-elif args.algorithm == "ps":
-    from algorithms.ps import main_worker
-elif args.algorithm == "psd":
-    from algorithms.ps_d import main_worker
-else:
-    raise NotImplementedError()
-
 params,_ = read_config_file(args.algorithm)
 args.paramTuning = False
 args.tuneVal = None
 
-def main():
-    global_rank, world_size = init_workers(args.distributed_backend)
-
-    ranks_per_node = torch.cuda.device_count()
-    local_rank = global_rank % ranks_per_node
-    node_num = world_size // ranks_per_node
-
-    results = {}
-    if global_rank==0:
-        print('\n\n')
-        print('pytorch version : ', torch.__version__)
-        print('WORLD SIZE:', world_size)
-        print('The number of nodes : ', node_num)
-        print('Device Count : ', torch.cuda.device_count())
-        print(f"which data: {args.which_data}")
-        print(f"which model: {args.which_model}")
-        print(f"loss type: {args.loss_type}")
-        print(f"sampler option: {args.sampler_option}")
-        print(f"clip amount: {args.clip_amount}")
-        print(f"algorithm: {args.algorithm}")
-        print(f"distributed backend: {args.distributed_backend}")
-        print(f"moreFilters: {args.moreFilters}")
-        print(f"results file: {args.results}")
-        print('\n\n')
-        results['which_data']=args.which_data
-        results['which_model']=args.which_model
-        results['loss_type'] = args.loss_type
-        results['algorithm'] = args.algorithm
-        results['world_size'] = world_size
-        results['node_num'] = node_num
-        results['torch_version'] = torch.__version__
-        results['distributed_backend']=args.distributed_backend
-        results['moreFilters']=args.moreFilters
+if args.algorithm == "fbf":
+    from algorithms.fbf import FBF
+    method = FBF()
+elif args.algorithm == "gda":
+    from algorithms.gda import GDA
+    method = GDA(params)
+elif args.algorithm == "extragrad":
+    from algorithms.extragrad import Extragrad
+    method = Extragrad()
+elif args.algorithm == "ps":
+    from algorithms.ps import PS
+    method = PS()
+elif args.algorithm == "psd":
+    from algorithms.ps_d import PSD
+    method = PSD()
+else:
+    raise NotImplementedError()
 
 
+global_rank, world_size = init_workers(args.distributed_backend)
 
+ranks_per_node = torch.cuda.device_count()
+local_rank = global_rank % ranks_per_node
+node_num = world_size // ranks_per_node
 
-    print('Local Rank : ', local_rank)
-    print('Global Rank : ', global_rank)
-
-
-    netG,netD,nz = get_models(args.which_model,args.moreFilters)
-    dataset = get_data(args.which_data)
-    if global_rank == 0:
-        nParamsD = get_param_count(netD)
-        nParamsG = get_param_count(netG)
-        print(f"num params D: {nParamsD}")
-        print(f"Discriminator size (MB): {4*nParamsD/(1e6):.4f}")
-        print(f"num params G: {get_param_count(netG)}")
-        print(f"Generator size (MB): {4*nParamsG/(1e6):.4f}")
-
-
-    main_worker(global_rank,local_rank,world_size,netG,netD,
-                dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,
-                args,params)
+results = {}
+if global_rank==0:
+    print('\n\n')
+    print('pytorch version : ', torch.__version__)
+    print('WORLD SIZE:', world_size)
+    print('The number of nodes : ', node_num)
+    print('Device Count : ', torch.cuda.device_count())
+    print(f"which data: {args.which_data}")
+    print(f"which model: {args.which_model}")
+    print(f"loss type: {args.loss_type}")
+    print(f"sampler option: {args.sampler_option}")
+    print(f"clip amount: {args.clip_amount}")
+    print(f"algorithm: {args.algorithm}")
+    print(f"distributed backend: {args.distributed_backend}")
+    print(f"moreFilters: {args.moreFilters}")
+    print(f"results file: {args.results}")
+    print('\n\n')
+    results['which_data']=args.which_data
+    results['which_model']=args.which_model
+    results['loss_type'] = args.loss_type
+    results['algorithm'] = args.algorithm
+    results['world_size'] = world_size
+    results['node_num'] = node_num
+    results['torch_version'] = torch.__version__
+    results['distributed_backend']=args.distributed_backend
+    results['moreFilters']=args.moreFilters
 
 
 
 
-if __name__ == '__main__':
-    main()
+print('Local Rank : ', local_rank)
+print('Global Rank : ', global_rank)
+
+
+netG,netD,nz = get_models(args.which_model,args.moreFilters)
+dataset = get_data(args.which_data)
+if global_rank == 0:
+    nParamsD = get_param_count(netD)
+    nParamsG = get_param_count(netG)
+    print(f"num params D: {nParamsD}")
+    print(f"Discriminator size (MB): {4*nParamsD/(1e6):.4f}")
+    print(f"num params G: {get_param_count(netG)}")
+    print(f"Generator size (MB): {4*nParamsG/(1e6):.4f}")
+
+
+method.main_worker(global_rank,local_rank,world_size,netG,netD,
+            dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,
+            args,params)
+
+
+
+

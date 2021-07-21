@@ -25,7 +25,7 @@ def read_config_file(algorithm):
     param_tune = "config/"+algorithm+'/param_tune_'+algorithm+'.json'
     with open(param_tune) as f:
         tune_vals = json.load(f)
-    return params,tune_vals 
+    return params,tune_vals
 
 
 def get_param_count(net):
@@ -235,7 +235,7 @@ class Minibatch:
 
 class ProgressMeter:
     def __init__(self,n_samples,nz,netG,num_epochs,dataloader,results,eval_freq,
-                 sampler_option,clip_amount,param_setting_str,dt_string,getISscore,
+                 sampler_option,clip_amount,params,dt_string,getISscore,
                  resultsFileName,getFIDscore,path2FIDstats,moreFilters,paramTuning):
         self.paramTuning = paramTuning
         self.n_samples = n_samples
@@ -247,7 +247,7 @@ class ProgressMeter:
         self.results['eval_freq'] = eval_freq
         self.results['sampler_option']=sampler_option
         self.results['clip_amount'] = clip_amount
-        self.results['param_setting_str'] = param_setting_str
+        self.results['param_setting_str'] = params
         if moreFilters:
             startFile = 'results/moreFilters/'
         else:
@@ -321,7 +321,7 @@ class ProgressMeter:
         self.G_losses.append(errG)
         self.D_losses.append(errD)
 
-    def save(self,ttot,tepoch,final=False,paramTuneVal=None):
+    def save(self,ttot,tepoch,final=False,paramTuneVal=None,reduceFracAv=-1):
         if (not final) and self.paramTuning:
             return
 
@@ -341,6 +341,7 @@ class ProgressMeter:
             self.results['D_losses']=self.D_losses
             self.results['epochStamps']=self.epochStamps
             self.results['total_running_time']=ttot
+            self.results['reduceFracAv'] = reduceFracAv
 
 
 

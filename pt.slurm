@@ -15,5 +15,5 @@
 module load cgpu
 module load pytorch
 
-srun python pt.py -a psd -r ptPSD8_f --num_epochs 250
+srun python pt.py -a psd -r ptPSD8_f --num_epochs 250  
 

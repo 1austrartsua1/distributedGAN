@@ -10,6 +10,12 @@ def av_param(model,world_size):
         dist.all_reduce(param.data, op=dist.ReduceOp.SUM)
         param.data /= world_size
 
+
+
+
+
+
+
 def av_grad(model, world_size):
 
     #for param in model.parameters():
@@ -20,6 +26,13 @@ def av_grad(model, world_size):
         else:
             print("Got a gradient which is None:")
             print(name)
+
+
+
+
+
+
+
 
 class GradAverager:
     def __init__(self,net):
