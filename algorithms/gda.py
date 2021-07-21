@@ -1,7 +1,7 @@
 import torch.optim as optim
 import numpy as np
 
-# locals
+# locals, hi
 
 from utils_distributed import av_grad,av_loss
 from utils import clip,sampler,compute_gan_loss
