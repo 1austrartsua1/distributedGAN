@@ -135,18 +135,22 @@ if __name__ == "__main__1":
     plt.legend()
     plt.show()
 
-if __name__ == "__main__1":
-    print_a_res("gda/ignore_me")
-    print_a_res("extragrad/extragrad2")
-    get_a_plot("extragrad/extragrad2","time","eg2",2)
-    get_a_plot("gda/ignore_me","time","gda2",2)
-    plt.grid()
-    plt.legend()
-    plt.show()
 
+algo1 = "gda/gda8"
+algo2 = "extragrad/eg8"
+print_a_res(algo1)
+print("\n\n\n")
+print_a_res(algo2)
 
-fileStart = "results/extragrad/"
-listOfFiles=['extragrad2','extragrad8','extragrad16','extragrad32']
-plot_a_scaling_result(fileStart,listOfFiles,'extragrad',0)
+get_a_plot(algo1,"time",algo1,1)
+get_a_plot(algo2,"time",algo2,2)
+plt.grid()
 plt.legend()
 plt.show()
+
+if __name__ == "__main__1":
+    fileStart = "results/extragrad/"
+    listOfFiles=['extragrad2','extragrad8','extragrad16','extragrad32']
+    plot_a_scaling_result(fileStart,listOfFiles,'extragrad',0)
+    plt.legend()
+    plt.show()

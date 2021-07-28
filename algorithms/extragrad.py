@@ -6,7 +6,7 @@ import numpy as np
 from utils_distributed import av_grad
 from utils import clip
 from optim.OptimExtragrad import ExtraAdam, ExtraSGD
-from algorithms.method import Method,TwoForwardStep
+from algorithms.method import TwoForwardStep
 
 class Extragrad(TwoForwardStep):
     def __init__(self):
