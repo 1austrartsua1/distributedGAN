@@ -23,15 +23,15 @@ global_rank, world_size = init_workers(distributed_backend)
 print(f"my global rank is {global_rank}")
 if global_rank==0:
     print(f"world size: {world_size}")
-    if os.path.exists("filename.txt"):
-        os.remove("filename.txt")
+    if os.path.exists("print_output.txt"):
+        os.remove("print_output.txt")
 
 ################################################################################
 # Print function useful for debugging async parallel programs
 ################################################################################
 def print_some(thing):
     original_stdout = sys.stdout  # Save a reference to the original standard output
-    with open('filename.txt', 'a') as f:
+    with open('print_output.txt', 'a') as f:
         sys.stdout = f  # Change the standard output to the file we created.
         print(thing)
         sys.stdout = original_stdout  # Reset the standard output to its original value

@@ -47,16 +47,16 @@ class Extragrad(TwoForwardStep):
         for p in netD.parameters():
             p.requires_grad = True
 
-    def communicate(self,netD, netG, world_size,ga_D,ga_G,args):
+    def communicate(self,netD, netG, world_size,ch_D,ch_G,args):
         # average discriminator gradients across workers
         if args.chunk_reduce:
-            ga_D.av_grad(netD, world_size)
+            ch_D.av_grad(netD, world_size)
         else:
             av_grad(netD, world_size)
 
         # average G's gradients across workers
         if args.chunk_reduce:
-            ga_G.av_grad(netG,world_size)
+            ch_G.av_grad(netG,world_size)
         else:
             av_grad(netG,world_size)
 

@@ -18,7 +18,7 @@ from utils import *
 parser = argparse.ArgumentParser(description='Distributed GAN training')
 parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'],
                     help='Specify the distributed backend to use, (default nccl)',default='nccl')
-parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='extragrad',help='default (extragrad)')
+parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd','asyncEG'],default='extragrad',help='default (extragrad)')
 parser.add_argument('-r','--results',default=None,help="results file name")
 parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar',help='default (cifar)')
 parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],
@@ -51,6 +51,9 @@ elif args.algorithm == "ps":
 elif args.algorithm == "psd":
     from algorithms.ps_d import PSD
     method = PSD()
+elif args.algorithm == "asyncEG":
+    from algorithms.async_eg import AsyncEG
+    method = AsyncEG()
 else:
     raise NotImplementedError()
 
@@ -106,7 +109,7 @@ if global_rank == 0:
     print(f"Generator size (MB): {4*nParamsG/(1e6):.4f}")
 
 
-method.main_worker(global_rank,local_rank,world_size,netG,netD,
+method.main(global_rank,local_rank,world_size,netG,netD,
             dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,
             args,params)
 
