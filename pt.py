@@ -19,8 +19,8 @@ from utils import *
 
 parser = argparse.ArgumentParser(description='Parameter tuning code')
 parser.add_argument('-d', '--distributed-backend', choices=['mpi', 'nccl', 'nccl-lsf', 'gloo'], help='Specify the distributed backend to use',default='nccl')
-parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd'],default='extragrad')
-parser.add_argument('-r','--results',default=None)
+parser.add_argument('-a','--algorithm',choices=['fbf','gda','extragrad','ps','psd','asyncEG'],default='extragrad')
+parser.add_argument('-r','--results',default=None,help="results file name")
 parser.add_argument('--which_data',choices=['cifar','celebra','random'],default='cifar')
 parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],default="dcgan_fbf_paper")
 parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan")
@@ -34,21 +34,56 @@ parser.add_argument('--chunk_reduce', action='store_true')
 
 args = parser.parse_args()
 
+def get_method(algo):
+    if algo == "fbf":
+        from algorithms.fbf import FBF
+        method = FBF()
+    elif algo == "gda":
+        from algorithms.gda import GDA
+        method = GDA(params)
+    elif algo == "extragrad":
+        from algorithms.extragrad import Extragrad
+        method = Extragrad()
+    elif algo == "ps":
+        from algorithms.ps import PS
+        method = PS()
+    elif algo == "psd":
+        from algorithms.ps_d import PSD
+        method = PSD()
+    elif algo == "asyncEG":
+        from algorithms.async_eg import AsyncEG
+        method = AsyncEG()
+    else:
+        raise NotImplementedError()
+    return method
 
-if args.algorithm == "fbf":
-    from algorithms.fbf import main_worker
-elif args.algorithm == "gda":
-    from algorithms.gda import main_worker
-elif args.algorithm == "extragrad":
-    from algorithms.extragrad import main_worker
-elif args.algorithm == "ps":
-    from algorithms.ps import main_worker
-elif args.algorithm == "psd":
-    from algorithms.ps_d import main_worker
-else:
-    raise NotImplementedError()
 
-params,tune_vals = read_config_file(args.algorithm)
+
+
+
+
+
+
+params,tune_vals = read_config_file(args.algorithm,pt=True)
+if params.set_seed:
+    manualSeed = 999
+    # manualSeed = random.randint(1, 10000) # use if you want new results
+    print("Manually-set Seed: ", manualSeed)
+    # random.seed(manualSeed)
+    torch.manual_seed(manualSeed)
+    np.random.seed(manualSeed)
+
+
+starting_point = read_progress_file(args.algorithm, args.results)
+
+
+if starting_point == -1:
+    print("tuning already done!!")
+    exit(0)
+
+results = read_pickle_file(args.algorithm, args.results,starting_point)
+
+
 
 for key in tune_vals:
     args.tuning_variable = key
@@ -63,7 +98,6 @@ def main():
     local_rank = global_rank % ranks_per_node
     node_num = world_size // ranks_per_node
 
-    results = {}
     if global_rank==0:
         print("parameter tuning")
         print(f"tuning variable: {args.tuning_variable}")
@@ -92,7 +126,9 @@ def main():
         results['num_epochs']=args.num_epochs
 
 
+
     tuneVarVals = tune_vals[args.tuning_variable]
+    print(f"starting at starting point: {starting_point+1} / {len(tuneVarVals)}")
     results['tuneVarVals'] = tuneVarVals
     results['tuning_variable'] = args.tuning_variable
 
@@ -108,24 +144,41 @@ def main():
 
 
     args.paramTuning = True
-    for tuneVal in tuneVarVals:
+
+    for i in range(starting_point,len(tuneVarVals)):
+        method = get_method(args.algorithm)
+        tuneVal = tuneVarVals[i]
+        netG, netD, nz = get_models(args.which_model, args.moreFilters)
+        dataset = get_data(args.which_data)
+
         if args.tuning_variable == "gamma":
             params.gamma = tuneVal
         elif args.tuning_variable == "lr_dis":
-            params.lr_dis_step = tuneVal
-            params.lr_gen_step = 0.1*tuneVal
+            params.lr_dis = tuneVal
+            params.lr_gen = 10.0*tuneVal
 
         print(f"\n\n starting tuning val {tuneVal} for {args.tuning_variable}...\n\n")
 
         args.tuneVal = tuneVal
-        main_worker(global_rank,local_rank,world_size,netG,netD,
+
+        method.main(global_rank,local_rank,world_size,netG,netD,
                 dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,
                 results,args,params)
+
+
+
+        if global_rank==0:
+            write_to_progress_file(args.algorithm, args.results, i+1)
+
+
+        
 
 
     if global_rank==0:
         t_pt = time.time()-t_pt
         print(f"\n\ntotal param tuning time: {t_pt}\n\n")
+        write_to_progress_file(args.algorithm, args.results, -1)
+
 
 
 

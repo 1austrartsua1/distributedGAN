@@ -41,6 +41,9 @@ class Extragrad(TwoForwardStep):
             # Update D
             optimizerD.step()
 
+
+
+
         # clip the discriminator tensors
         # for extragradient, clip after both extrapolate() and the step()
         clip(netD,clip_amount)

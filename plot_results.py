@@ -136,14 +136,16 @@ if __name__ == "__main__1":
     plt.show()
 
 
-algo1 = "gda/gda8"
-algo2 = "extragrad/eg8"
+algo1 = "extragrad/eg1"
+algo2 = "asyncEG/asyncEG2"
+
 print_a_res(algo1)
 print("\n\n\n")
 print_a_res(algo2)
 
-get_a_plot(algo1,"time",algo1,1)
+get_a_plot(algo1,"time",algo1,2)
 get_a_plot(algo2,"time",algo2,2)
+
 plt.grid()
 plt.legend()
 plt.show()

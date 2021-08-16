@@ -20,6 +20,21 @@ class RandomDataSet(Dataset):
         label = torch.randint(0,self.numLabels,(1,))
         return(torch.randn(self.numColorChannels,self.dim1,self.dim2),label[0])
 
+class RandomFlatDataSet(Dataset):
+    def __init__(self,dim,numDataPoints,numLabels):
+        self.dim = dim
+        self.numDataPoints = numDataPoints
+        self.numLabels = numLabels
+
+
+
+    def __len__(self):
+        return self.numDataPoints
+
+    def __getitem__(self,idx):
+        label = torch.randint(0,self.numLabels,(1,))
+        return torch.randn(self.dim),label[0]
+
 
 if __name__ == "__main__":
     dim1 = 10

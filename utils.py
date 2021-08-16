@@ -7,6 +7,9 @@ import time
 import pickle
 import json
 import argparse
+import sys
+import os
+
 
 #locals
 import inception_score as iscore
@@ -15,8 +18,54 @@ import models
 
 from pytorch_fid.fid_score import calculate_activation_statistics_kaggle, calculate_frechet_distance
 
-def read_config_file(algorithm):
-    config = "config/"+algorithm+'/active_'+algorithm+'.json'
+def print_some(thing):
+    original_stdout = sys.stdout  # Save a reference to the original standard output
+    with open('print_output.txt', 'a') as f:
+        sys.stdout = f  # Change the standard output to the file we created.
+        print(thing)
+        sys.stdout = original_stdout  # Reset the standard output to its original value
+
+print_some = print
+
+def read_progress_file(algorithm,results):
+    fname = 'results/paramTune/'+algorithm+'/'+results + "_progress"
+    pkle_fname = 'results/paramTune/'+algorithm+'/'+results
+    if os.path.exists(fname):
+        f = open(fname, "r")
+        x = int(f.read())
+        f.close()
+        return x
+    else:
+        write_to_progress_file(algorithm, results, 0)
+        return 0
+
+
+def read_pickle_file(algorithm,results,starting_point):
+    pkle_fname = 'results/paramTune/' + algorithm + '/' + results
+    if starting_point > 0:
+        with open(pkle_fname, 'rb') as handle:
+            results = pickle.load(handle)
+
+    else:
+        results = {}
+    return results
+
+
+
+def write_to_progress_file(algorithm,results,progress):
+    fname = 'results/paramTune/'+algorithm+'/'+results + "_progress"
+    f = open(fname, "w")
+    f.write(str(progress))
+    f.close()
+
+
+
+
+def read_config_file(algorithm,pt=False):
+    if pt:
+        config = "config/" + algorithm + '/pt_config_' + algorithm + '.json'
+    else:
+        config = "config/"+algorithm+'/active_'+algorithm+'.json'
     with open(config) as f:
         data = json.load(f)
     params = argparse.Namespace(**data)
@@ -33,6 +82,33 @@ def get_param_count(net):
     for p in net.parameters():
         nparams += np.prod(p.shape)
     return nparams
+
+
+dummyGenIn = 1
+dummyGenOut = 5
+class DummyDis(nn.Module):
+    def __init__(self):
+        super(DummyDis, self).__init__()
+        self.lin = nn.Linear(dummyGenOut, 1,bias=False)
+
+    def forward(self,x):
+        return self.lin(x)
+
+class DummyGen(nn.Module):
+    def __init__(self):
+        super(DummyGen, self).__init__()
+        self.lin = nn.Linear(dummyGenIn, dummyGenOut,bias=False)
+
+    def forward(self,x):
+        return self.lin(x)
+
+def getDummyModels():
+    netD = DummyDis()
+    netG = DummyGen()
+    return netG,netD,dummyGenIn
+
+def getDummyData():
+    return rd.RandomFlatDataSet(dummyGenOut,100,1)
 
 
 def get_models(which_model,moreFilters):
@@ -313,7 +389,7 @@ class ProgressMeter:
         self.t0 = time.time()
 
         if iscore>=0:
-            print('IS: %.4f'% (iscore))
+            print_some('IS: %f'% (iscore))
         if fid>=0:
             print('FID: %.4f'% (fid))
 

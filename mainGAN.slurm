@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH -J asyncEG3
+#SBATCH -J asyncEG2
 #SBATCH -N 1
 #SBATCH -C gpu
 #SBATCH --cpus-per-task=10
-#SBATCH --ntasks-per-node=3
+#SBATCH --ntasks-per-node=2
 #SBATCH --gpus-per-task=1
-#SBATCH --time 00:30:00
+#SBATCH --time 00:10:00
 #SBATCH --account=m1759
-#SBATCH -o outputs/asyncEG3.out
+#SBATCH -o outputs/asyncEG2.out
 
 
 # -N will change number of nodes
@@ -16,6 +16,6 @@
 module load cgpu
 module load pytorch
 
-srun python mainGAN.py -a asyncEG -r asyncEG3 -d mpi
+srun python mainGAN.py -a asyncEG --num_epochs 5 -r ignore_me -d mpi
 
 

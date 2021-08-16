@@ -48,36 +48,49 @@ class Chunker:
 
         if isMaster:
             self.reqs = [None for i in range(world_size-1)]
-            self.grad_buffers = [self.buffer.clone() for i in range(world_size-1)]
+            self.grad_buffers = [self.buffer.data.clone() for i in range(world_size-1)]
+
+        else:
+            self.gradbuffer = torch.empty(ln, requires_grad=False).cuda()
 
 
+    def getBufferNorm(self,which="grad"):
+        if which == "grad":
+            return torch.norm(self.gradbuffer) ** 2
+        else:
+            return torch.norm(self.buffer)**2
+
+    def getGradBufferNorm(self,workeri):
+        return torch.norm(self.grad_buffers[workeri-1].data)**2
 
     def grad_isend(self):
         # worker func
-        self.flatten()
-        self.gradreq = dist.isend(self.buffer, 0)
+        self.workerflatten()
+        norms = self.getBufferNorm()
+        self.gradreq = dist.isend(self.gradbuffer.data, 0)
+        return norms
 
 
     def grad_irecv(self,workeri):
         # master func
-        self.reqs[workeri-1]=dist.irecv(self.grad_buffers[workeri-1], workeri)
+        self.reqs[workeri-1]=dist.irecv(self.grad_buffers[workeri-1].data, workeri)
 
 
     def grad_wait(self):
         # worker func
         self.gradreq.wait()
-        self.expand()
+        #self.expand()
 
     def param_recv(self):
         # worker func
-        dist.recv(self.buffer, 0)
+        dist.recv(self.buffer.data, 0)
         self.expand("data")
 
     def param_send(self,workeri):
         # master func
         self.flatten("data")
-        dist.send(self.buffer,workeri)
-        self.expand("data")
+        dist.send(self.buffer.data,workeri)
+        #self.expand("data")
 
     def grad_ready(self,workeri):
         # master func
@@ -85,16 +98,29 @@ class Chunker:
 
     def copy_grad(self,workeri):
         # master func
-        # copy selected grad buffer back to the param tensors.
+        # copy selected grad buffer back to the param grad tensors.
         i = 0
+        norms = 0.0
         for param in self.net.parameters():
             ln = np.prod(param.shape)
             x = self.grad_buffers[workeri].data[i:i + ln]
+            norms += torch.norm(x)**2
 
-            param.grad.data = torch.reshape(x, param.size()).data
+            param.grad.data = torch.reshape(x, param.size()).data.clone()
+
             i += ln
 
+        return norms
 
+    def workerflatten(self):
+        # flatten each param tensor and copy to buffer
+        i = 0
+        for param in self.net.parameters():
+
+            x = torch.flatten(param.grad.data)
+
+            self.gradbuffer.data[i:i + len(x)] = x.data.clone()
+            i += len(x)
 
     def flatten(self,gradOrData="grad"):
         # flatten each param tensor and copy to buffer
@@ -104,7 +130,7 @@ class Chunker:
                 x = torch.flatten(param.grad.data)
             else:
                 x = torch.flatten(param.data)
-            self.buffer.data[i:i + len(x)] = x.data
+            self.buffer.data[i:i + len(x)] = x.data.clone()
             i += len(x)
 
     def expand(self,gradOrData="grad"):
@@ -114,9 +140,9 @@ class Chunker:
             ln = np.prod(param.shape)
             x = self.buffer.data[i:i + ln]
             if gradOrData=="grad":
-                param.grad.data = torch.reshape(x, param.size()).data
+                param.grad.data = torch.reshape(x, param.size()).data.clone()
             else:
-                param.data = torch.reshape(x, param.size()).data
+                param.data = torch.reshape(x, param.size()).data.clone()
             i += ln
 
 

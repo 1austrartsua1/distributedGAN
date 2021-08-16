@@ -1,5 +1,7 @@
 import argparse
 import os
+import time
+tmainGan = time.time()
 
 
 #distributed
@@ -29,10 +31,19 @@ parser.add_argument('--clip_amount',default=0.01,type=float,help='default (0.01)
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=600)
 parser.add_argument('--chunk_reduce', action='store_true')
+parser.add_argument('--debug',action='store_true',help='uses a small dummy model and data, default (off)')
 
 
 args = parser.parse_args()
 params,_ = read_config_file(args.algorithm)
+if params.set_seed:
+    manualSeed = 999
+    # manualSeed = random.randint(1, 10000) # use if you want new results
+    print("Manually-set Seed: ", manualSeed)
+    # random.seed(manualSeed)
+    torch.manual_seed(manualSeed)
+    np.random.seed(manualSeed)
+
 args.paramTuning = False
 args.tuneVal = None
 
@@ -97,9 +108,12 @@ if global_rank==0:
 print('Local Rank : ', local_rank)
 print('Global Rank : ', global_rank)
 
-
-netG,netD,nz = get_models(args.which_model,args.moreFilters)
-dataset = get_data(args.which_data)
+if args.debug:
+    netG, netD, nz = getDummyModels()
+    dataset = getDummyData()
+else:
+    netG,netD,nz = get_models(args.which_model,args.moreFilters)
+    dataset = get_data(args.which_data)
 if global_rank == 0:
     nParamsD = get_param_count(netD)
     nParamsG = get_param_count(netG)
@@ -112,7 +126,9 @@ if global_rank == 0:
 method.main(global_rank,local_rank,world_size,netG,netD,
             dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,
             args,params)
-
+tmainGan = time.time() - tmainGan
+if global_rank == 0:
+    print(f"time in mainGan.py: {tmainGan}")
 
 
 

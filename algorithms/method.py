@@ -36,6 +36,31 @@ class Method:
     def __init__(self):
         self.forward_steps = 0
 
+    def print_net(self,netG,netD):
+        #print(f"netG params:")
+        norms = 0.0
+        for p in netG.parameters():
+            norms += torch.norm(p)**2
+
+        #print(f"netD params:")
+        for p in netD.parameters():
+            norms += torch.norm(p)**2
+
+        print(f"net norm {norms}")
+
+    def print_grad(self,netG,netD):
+
+        norms = 0.0
+        for p in netG.parameters():
+            norms += torch.norm(p.grad)**2
+
+
+        for p in netD.parameters():
+            norms += torch.norm(p.grad)**2
+
+        print(f"grad norm {norms}")
+
+
     def setup_optimizer(self,params,netD,netG):
         # must overwrite
         pass
@@ -135,12 +160,7 @@ class Method:
 
         results['batch_size'] = params.batch_size
 
-        if params.set_seed:
-            manualSeed = 999
-            # manualSeed = random.randint(1, 10000) # use if you want new results
-            print("Manually-set Seed: ", manualSeed)
-            # random.seed(manualSeed)
-            torch.manual_seed(manualSeed)
+
 
         if global_rank == 0:
             print("\n\n")
@@ -186,6 +206,7 @@ class Method:
         # average parameters across workers so they all start with the same model
         av_param(netD,world_size)
 
+
         # Setup optimizers for both G and D
         optimizerD,optimizerG = self.setup_optimizer(params,netD,netG)
 
@@ -213,6 +234,10 @@ class Method:
 
         tepoch = time.time()
         iteration = 0
+
+
+
+
         while (iteration < num_iterations) and (self.epoch < args.num_epochs):
             dataNew,newEpoch = self.get_new_data(params,minibatch)
             if dataNew is not None:
@@ -225,10 +250,14 @@ class Method:
             ###########################
             D_on_real_data, errD_real,b_size = self.dis_real_batch(netD, data, loss_type)
 
+
+
             ############################
             ## (1b) Train with all-fake batch
             ############################
             D_on_fake_data, errD_fake,output,fake = self.dis_fake_batch(b_size, nz, sampler_option, netG, netD, loss_type)
+
+
 
             errD = errD_real + errD_fake
 
@@ -239,12 +268,20 @@ class Method:
             ###########################
             errG = self.gen_grads(netG, netD, loss_type, b_size,output,optimizerD,optimizerG,world_size,clip_amount,fake)
 
+
             ############################
             # (2) Communicate (if necessary)
             ###########################
             self.communicate(netD,netG,world_size,ch_D,ch_G,args)
 
-            self.optimizer_step(optimizerG,optimizerD,netD,netG,clip_amount)
+
+            self.optimizer_step(optimizerG, optimizerD, netD, netG, clip_amount)
+
+            #if (global_rank==0) and (iteration % 2 == 1):
+            #    # update step:
+            #    print("net after update")
+            #    self.print_net(netG,netD)
+
 
             iteration = self.update_iteration_counter(iteration)
 
