@@ -37,7 +37,7 @@ class Chunker:
     # individually. This makes code simpler, especially for async, as you only need
     # to keep one request object for the buffer rather than a list for all param tensors
     # Also may improve speed as there is less overhead for the communication.
-    def __init__(self,net,world_size,isMaster):
+    def __init__(self,net,world_size,isMaster,backend="mpi",groups = None, global_rank = -1):
         ln = 0
         # work out size of the buffer
         for param in net.parameters():
@@ -53,6 +53,37 @@ class Chunker:
         else:
             self.gradbuffer = torch.empty(ln, requires_grad=False).cuda()
 
+        self.backend = backend
+        self.groups = groups
+        self.global_rank = global_rank
+
+
+    def isend_wrapper(self,tensor):
+        if self.backend == "nccl":
+            return dist.broadcast(tensor, self.global_rank, self.groups[self.global_rank], async_op=True)
+        else:
+            return dist.isend(tensor, 0)
+
+    def irecv_wrapper(self,tensor, sending_node):
+        if self.backend == "nccl":
+            return dist.broadcast(tensor, sending_node, self.groups[sending_node], async_op=True)
+        else:
+            return dist.irecv(tensor, sending_node)
+
+
+    def send_wrapper(self,tensor, node):
+        if self.backend == "nccl":
+            dist.broadcast(tensor, 0, self.groups[node])
+        else:
+            dist.send(tensor, node)
+
+    def recv_wrapper(self,tensor):
+        if self.backend == "nccl":
+            dist.broadcast(tensor, 0, self.groups[self.global_rank])
+        else:
+            dist.recv(tensor, 0)
+
+
 
     def getBufferNorm(self,which="grad"):
         if which == "grad":
@@ -67,13 +98,15 @@ class Chunker:
         # worker func
         self.workerflatten()
         norms = self.getBufferNorm()
-        self.gradreq = dist.isend(self.gradbuffer.data, 0)
+        #self.gradreq = dist.isend(self.gradbuffer.data, 0)
+        self.gradreq = self.isend_wrapper(self.gradbuffer.data)
         return norms
 
 
     def grad_irecv(self,workeri):
         # master func
-        self.reqs[workeri-1]=dist.irecv(self.grad_buffers[workeri-1].data, workeri)
+        #self.reqs[workeri-1]=dist.irecv(self.grad_buffers[workeri-1].data, workeri)
+        self.reqs[workeri-1] = self.irecv_wrapper(self.grad_buffers[workeri-1].data, workeri)
 
 
     def grad_wait(self):
@@ -83,13 +116,15 @@ class Chunker:
 
     def param_recv(self):
         # worker func
-        dist.recv(self.buffer.data, 0)
+        #dist.recv(self.buffer.data, 0)
+        self.recv_wrapper(self.buffer.data)
         self.expand("data")
 
     def param_send(self,workeri):
         # master func
         self.flatten("data")
-        dist.send(self.buffer.data,workeri)
+        #dist.send(self.buffer.data,workeri)
+        self.send_wrapper(self.buffer.data, workeri)
         #self.expand("data")
 
     def grad_ready(self,workeri):

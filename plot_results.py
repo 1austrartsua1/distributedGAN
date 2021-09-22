@@ -10,7 +10,39 @@ def print_a_res(file):
         res = pickle.load(handle)
 
     for key in res.keys():
-        print(f"{key}: {res[key]}")
+        if key != 'worker_order':
+            print(f"{key}: {res[key]}")
+
+    if res.get('worker_order'):
+        dist = []
+        currLen = 0
+        for i in range(len(res['worker_order'])):
+            if res['worker_order'][i]>=currLen:
+                for _ in range(res['worker_order'][i]-currLen + 1):
+                    dist.append(0)
+                currLen = len(dist)
+
+            dist[res['worker_order'][i]] += 1
+
+        print(dist)
+        mx = -float('inf')
+        mn = float('inf')
+        av = 0.0
+        for d in dist:
+            av += d
+            if d > mx:
+                mx = d
+
+            if d < mn:
+                mn = d
+        av = av/len(dist)
+        print(f"max relative discrepancy = {100*(mx-mn)/av:.3f}%")
+
+
+        #plt.hist(res['worker_order'],bins=7)
+        #plt.show()
+
+
 
 
 def calculate_scaling_result(file):
@@ -136,15 +168,19 @@ if __name__ == "__main__1":
     plt.show()
 
 
-algo1 = "extragrad/eg1"
-algo2 = "asyncEG/asyncEG2"
 
-print_a_res(algo1)
-print("\n\n\n")
-print_a_res(algo2)
 
-get_a_plot(algo1,"time",algo1,2)
-get_a_plot(algo2,"time",algo2,2)
+listOfAlgs = ["extragrad/eg1",
+              "asyncEG/FBFp2",
+              "asyncEG/FBFp8_ptedLR"]
+
+for alg in listOfAlgs:
+    print_a_res(alg)
+    print("\n\n\n")
+
+for alg in listOfAlgs:
+    get_a_plot(alg,"time",alg,2)
+
 
 plt.grid()
 plt.legend()

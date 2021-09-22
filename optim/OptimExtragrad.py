@@ -52,7 +52,7 @@ class Extragradient(Optimizer):
         is_empty = len(self.params_copy) == 0
         for group in self.param_groups:
             for p in group['params']:
-                u = self.update(p, group)
+                u = self.update(p, group,'extrap')
                 if is_empty:
                     # Save the current parameters for the update step.
                     # Several extrapolation step can be made before each update
@@ -81,7 +81,7 @@ class Extragradient(Optimizer):
         for group in self.param_groups:
             for p in group['params']:
                 i += 1
-                u = self.update(p, group)
+                u = self.update(p, group,'step')
                 if u is None:
                     continue
                 # Update the parameters saved during the extrapolation step
@@ -140,27 +140,35 @@ class ExtraSGD(Extragradient):
 
         The Nesterov version is analogously modified.
     """
-    def __init__(self, params, lr=required, momentum=0, dampening=0,
+    def __init__(self, params, lr_step=required, lr_extrap=None, momentum=0, dampening=0,
                  weight_decay=0, nesterov=False):
-        if lr is not required and lr < 0.0:
-            raise ValueError("Invalid learning rate: {}".format(lr))
+        if lr_step is not required and lr_step < 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr_step))
         if momentum < 0.0:
             raise ValueError("Invalid momentum value: {}".format(momentum))
         if weight_decay < 0.0:
             raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
 
-        defaults = dict(lr=lr, momentum=momentum, dampening=dampening,
+        defaults = dict(lr=lr_step, momentum=momentum, dampening=dampening,
                         weight_decay=weight_decay, nesterov=nesterov)
         if nesterov and (momentum <= 0 or dampening != 0):
             raise ValueError("Nesterov momentum requires a momentum and zero dampening")
         super(ExtraSGD, self).__init__(params, defaults)
+
+
+        self.lr_step = lr_step
+        if lr_extrap is None:
+            self.lr_extrap = lr_step
+        else:
+            self.lr_extrap = lr_extrap
+
 
     def __setstate__(self, state):
         super(SGD, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault('nesterov', False)
 
-    def update(self, p, group):
+    def update(self, p, group,updateType):
         weight_decay = group['weight_decay']
         momentum = group['momentum']
         dampening = group['dampening']
@@ -184,7 +192,12 @@ class ExtraSGD(Extragradient):
             else:
                 d_p = buf
 
-        return -group['lr']*d_p
+        if updateType == "extrap":
+            return -self.lr_extrap * d_p
+        else:
+            return -self.lr_step * d_p
+
+
 
 class ExtraAdam(Extragradient):
     """Implements the Adam algorithm with extrapolation step.
@@ -202,26 +215,32 @@ class ExtraAdam(Extragradient):
             algorithm from the paper `On the Convergence of Adam and Beyond`_
     """
 
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+    def __init__(self, params, lr_step=1e-3, lr_extrap=None, betas=(0.9, 0.999), eps=1e-8,
                  weight_decay=0, amsgrad=False):
-        if not 0.0 <= lr:
-         raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= lr_step:
+         raise ValueError("Invalid learning rate: {}".format(lr_step))
         if not 0.0 <= eps:
          raise ValueError("Invalid epsilon value: {}".format(eps))
         if not 0.0 <= betas[0] < 1.0:
          raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
          raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, eps=eps,
+        defaults = dict(lr=lr_step, betas=betas, eps=eps,
                      weight_decay=weight_decay, amsgrad=amsgrad)
         super(ExtraAdam, self).__init__(params, defaults)
+
+        self.lr_step = lr_step
+        if lr_extrap is None:
+            self.lr_extrap = lr_step
+        else:
+            self.lr_extrap = lr_extrap
 
     def __setstate__(self, state):
         super(ExtraAdam, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault('amsgrad', False)
 
-    def update(self, p, group):
+    def update(self, p, group,updateType):
         if p.grad is None:
             return None
         grad = p.grad.data
@@ -265,6 +284,11 @@ class ExtraAdam(Extragradient):
 
         bias_correction1 = 1 - beta1 ** state['step']
         bias_correction2 = 1 - beta2 ** state['step']
-        step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
 
+        if updateType == "extrap":
+            step_size = self.lr_extrap * math.sqrt(bias_correction2) / bias_correction1
+
+        else:
+            step_size = self.lr_step * math.sqrt(bias_correction2) / bias_correction1
+            
         return -step_size*exp_avg/denom

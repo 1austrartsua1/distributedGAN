@@ -14,15 +14,18 @@ class Extragrad(TwoForwardStep):
 
 
     def setup_optimizer(self,params,netD,netG):
-
+        lr_extrapD = params.lr_dis * params.extrap2stepRatio
+        lr_extrapG = params.lr_gen * params.extrap2stepRatio
         if params.adam_updates == True:
-            optimizerD = ExtraAdam(netD.parameters(), lr=params.lr_dis,
+
+            optimizerD = ExtraAdam(netD.parameters(), lr_step=params.lr_dis,lr_extrap = lr_extrapD,
                                    betas=(params.beta1, params.beta2))
-            optimizerG = ExtraAdam(netG.parameters(), lr=params.lr_gen,
+
+            optimizerG = ExtraAdam(netG.parameters(), lr_step=params.lr_gen,lr_extrap =lr_extrapG,
                                    betas=(params.beta1, params.beta2))
         else:
-            optimizerD = ExtraSGD(netD.parameters(), lr=params.lr_dis)
-            optimizerG = ExtraSGD(netG.parameters(), lr=params.lr_gen)
+            optimizerD = ExtraSGD(netD.parameters(), lr_step=params.lr_dis,lr_extrap = lr_extrapD)
+            optimizerG = ExtraSGD(netG.parameters(), lr_step=params.lr_gen,lr_extrap =lr_extrapG)
 
         return optimizerD,optimizerG
 

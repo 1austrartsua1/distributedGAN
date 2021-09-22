@@ -35,7 +35,7 @@ parser.add_argument('--debug',action='store_true',help='uses a small dummy model
 
 
 args = parser.parse_args()
-params,_ = read_config_file(args.algorithm)
+params,_,_ = read_config_file(args.algorithm)
 if params.set_seed:
     manualSeed = 999
     # manualSeed = random.randint(1, 10000) # use if you want new results

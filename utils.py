@@ -74,7 +74,7 @@ def read_config_file(algorithm,pt=False):
     param_tune = "config/"+algorithm+'/param_tune_'+algorithm+'.json'
     with open(param_tune) as f:
         tune_vals = json.load(f)
-    return params,tune_vals
+    return params,tune_vals,data
 
 
 def get_param_count(net):
@@ -324,6 +324,7 @@ class ProgressMeter:
         self.results['sampler_option']=sampler_option
         self.results['clip_amount'] = clip_amount
         self.results['param_setting_str'] = params
+        self.workerOrder = []
         if moreFilters:
             startFile = 'results/moreFilters/'
         else:
@@ -361,7 +362,11 @@ class ProgressMeter:
 
         self.t0 = time.time()
 
-    def record(self,forward_steps,epoch,errD,errG,netG,final=False):
+    def record(self,forward_steps,epoch,errD,errG,netG,final=False,workerOrder = None):
+        if workerOrder is not None:
+            self.workerOrder = workerOrder
+
+
         if (not final) and self.paramTuning:
             return
 
@@ -405,6 +410,7 @@ class ProgressMeter:
             self.results['forwardStepStamps_'+str(paramTuneVal)]=self.forwardStepStamps
             self.results['iscores_'+str(paramTuneVal)]=self.iscores
             self.results['timestamps_'+str(paramTuneVal)]=self.timestamps[1:]
+            self.results['worker_order'] = self.workerOrder
         else:
 
             self.epoch_running_times.append(tepoch)
@@ -418,6 +424,7 @@ class ProgressMeter:
             self.results['epochStamps']=self.epochStamps
             self.results['total_running_time']=ttot
             self.results['reduceFracAv'] = reduceFracAv
+            self.results['worker_order'] = self.workerOrder
 
 
 

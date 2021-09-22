@@ -12,6 +12,7 @@ from utils_distributed import Chunker as CH
 from utils_distributed import av_param
 from algorithms.extragrad import Extragrad
 from utils import Minibatch,ProgressMeter, clip,sampler
+from optim.SPSpast import OPTIM_SPS_Adam_P, OPTIM_SPS_Grad_P
 
 useSleepHack = False
 
@@ -32,9 +33,6 @@ print_some = print
 class AsyncEG(Extragrad):
     def __init__(self):
         super(Extragrad,self).__init__()
-        self.CONTINUE = torch.tensor([1])
-        self.FINISH = torch.tensor([0])
-        self.continue_flag = torch.tensor([-1])
 
     def print_net(self):
 
@@ -112,18 +110,19 @@ class AsyncEG(Extragrad):
         self.args = args
         self.params = params
 
+        self.groups = [None]
         if args.distributed_backend == 'nccl':
-            self.groups = [None]
             for i in range(1, world_size):
                 self.groups.append(dist.new_group([0, i]))
-
-
-
 
 
         self.dt_string, tstart, self.num_iterations = self.main_preamble(params, results, global_rank)
 
         torch.cuda.set_device(local_rank)
+
+        self.CONTINUE = torch.tensor([1]).cuda()
+        self.FINISH = torch.tensor([0]).cuda()
+        self.continue_flag = torch.tensor([-1]).cuda()
 
         # send the generator weights to GPU
         self.netG = netG.cuda()
@@ -142,11 +141,15 @@ class AsyncEG(Extragrad):
         # Also may improve speed as there is less overhead for the communication.
 
         isMaster = (global_rank==0)
-        self.ch_G = CH(netG,world_size,isMaster)
-        self.ch_D = CH(netD,world_size,isMaster)
+        self.ch_G = CH(netG,world_size,isMaster,args.distributed_backend,self.groups,global_rank)
+        self.ch_D = CH(netD,world_size,isMaster,args.distributed_backend,self.groups,global_rank)
 
         # Setup optimizers for both G and D
-        self.setup_optimizer(params, self.netD, self.netG)
+        if params.reuse_gradients and (global_rank == 0):
+            self.setup_optimizer_rg(params, self.netD, self.netG)
+        elif not params.reuse_gradients:
+            self.setup_optimizer(params, self.netD, self.netG, global_rank)
+
 
         if global_rank == 0:
             dl = torch.utils.data.DataLoader(self.dataset)
@@ -177,7 +180,10 @@ class AsyncEG(Extragrad):
                                                  shuffle=False, num_workers=self.params.workers,
                                                  pin_memory=True, sampler=train_sampler)
 
-        self.worker_loop()
+        if self.params.reuse_gradients:
+            self.worker_loop_reuse_gradients()
+        else:
+            self.worker_loop()
 
     def worker_get_grads(self,data):
         ############################
@@ -186,7 +192,7 @@ class AsyncEG(Extragrad):
         ## (1a) Train with all-real batch
         ###########################
 
-        D_on_real_data, errD_real, b_size = self.dis_real_batch(self.netD, data, self.loss_type,commLoss=False)
+        D_on_real_data, errD_real, b_size, real = self.dis_real_batch(self.netD, data, self.loss_type,commLoss=False)
 
         ############################
         ## (1b) Train with all-fake batch
@@ -212,6 +218,45 @@ class AsyncEG(Extragrad):
             p.requires_grad = True
 
 
+    def worker_loop_reuse_gradients(self):
+        ngrads = 0
+        minibatch = Minibatch(self.dataloader)
+        self.epoch = 0
+        loopNumber = 0
+        while True:
+            loopNumber += 1
+
+            # get new data
+
+            data, newEpoch = self.get_new_data(minibatch)
+
+            # calculate disc and generator gradients
+            self.worker_get_grads(data)
+            ngrads += 1
+
+            # isend gradient to master
+            norms = self.ch_G.grad_isend()
+            norms += self.ch_D.grad_isend()
+            # print(f"buffer norm during isend {norms}")
+            if useSleepHack:
+                time.sleep(1e-2)
+
+            # simply wait until master has recved grads.
+            self.ch_G.grad_wait()
+            self.ch_D.grad_wait()
+
+            # wait for stop/continue flag from master
+            self.recv_wrapper(self.continue_flag, self.global_rank)
+            if self.continue_flag[0] == 0:
+                break
+
+            # get updated params from master
+
+            self.ch_G.param_recv()
+            self.ch_D.param_recv()
+
+
+
     def worker_loop(self):
         #print_some(f"worker {self.global_rank} in worker_loop()")
 
@@ -231,16 +276,7 @@ class AsyncEG(Extragrad):
             data, newEpoch = self.get_new_data(minibatch)
 
             # calculate disc and generator gradients
-
-
-
             self.worker_get_grads(data)
-
-
-
-
-
-
 
             # perform an update using these gradients
             # Update G
@@ -249,14 +285,8 @@ class AsyncEG(Extragrad):
             # Update D
             self.optimizerD.step()
 
-
-
-
-
             # clip params here
             clip(self.netD, self.clip_amount)
-
-
 
             # get new data
             if self.params.stale==False:
@@ -347,6 +377,20 @@ class AsyncEG(Extragrad):
         # clip params here
         clip(self.netD, self.clip_amount)
 
+        # for reuse_gradient version, now do another update
+        # but save the current params
+        # need to use the extrapolation stepsize
+
+        if self.params.reuse_gradients:
+            # Extrap G
+            self.optimizerG.step(updateType="extrap")
+            # Extrap D
+            self.optimizerD.step(updateType="extrap")
+
+            # optional second clip
+            if self.params.second_clip:
+                clip(self.netD, self.clip_amount)
+
 
     def master_loop(self):
         # loop to check for an irecv completed
@@ -380,20 +424,10 @@ class AsyncEG(Extragrad):
                 norms = self.ch_G.getGradBufferNorm(i+1)
                 norms += self.ch_D.getGradBufferNorm(i+1)
 
-
-
                 self.master_update(i)
 
-
-
-
-
-
-
-
-
                 updates += 1
-                numGrads += batchsize + batchsize*(1-self.params.stale)
+                numGrads += batchsize + batchsize*(1-self.params.stale)*(1-self.params.reuse_gradients)
                 numEpochs = numGrads // len(self.dataset)
                 newEpoch = (numEpochs != oldEpoch)
 
@@ -402,7 +436,7 @@ class AsyncEG(Extragrad):
                     oldEpoch = numEpochs
                     tepoch = time.time() - tepoch
                     if (numEpochs + 1) % self.params.IS_eval_freq == 0:
-                        progressMeter.record(2*updates, numEpochs, -1, -1, self.netG)
+                        progressMeter.record(2*updates, numEpochs, -1, -1, self.netG,workerOrder = worker_order)
                         ttot = time.time() - tstart
                         progressMeter.save(ttot, tepoch)
                     print_some(f"epoch {numEpochs} time = {tepoch}")
@@ -411,24 +445,30 @@ class AsyncEG(Extragrad):
                 if (updates >= self.num_iterations) or (numEpochs >= self.args.num_epochs):
                     # send message to others to exit...
                     break
+
+                # send message to worker to continue
                 self.send_wrapper(self.CONTINUE, i+1)
-                #dist.send(self.CONTINUE, i + 1)
 
-
-
+                # send params to worker
                 self.ch_G.param_send(i + 1)
                 self.ch_D.param_send(i + 1)
 
+                # in reuse-gradient version, need to revert params back to z (currently set to x)
+                if self.params.reuse_gradients:
+                    self.optimizerG.revert()
+                    self.optimizerD.revert()
+
+                # setup irecv on gradient from worker
                 self.ch_G.grad_irecv(i + 1)
                 self.ch_D.grad_irecv(i + 1)
             i = (i + 1) % (self.world_size - 1)
 
 
-
         tepoch = time.time()-tepoch
         ttot = time.time() - tstart
-        #progressMeter.record(2*updates,numEpochs,-1,-1,self.netG,final=True)
-        #progressMeter.save(ttot,tepoch,final=True,paramTuneVal=self.args.tuneVal)
+        progressMeter.record((1+int(self.params.reuse_gradients==False))*updates,numEpochs,-1,-1,
+                             self.netG,final=True,workerOrder = worker_order)
+        progressMeter.save(ttot,tepoch,final=True,paramTuneVal=self.args.tuneVal)
 
         print("master exiting")
         self.print_net()
@@ -449,13 +489,44 @@ class AsyncEG(Extragrad):
                     break
             i = (i + 1) % (self.world_size - 1)
 
-    def setup_optimizer(self,params,netD,netG):
-        if params.adam_updates:
-            self.optimizerD = optim.Adam(netD.parameters(), lr=params.lr_dis, betas=(params.beta1, params.beta2))
-            self.optimizerG = optim.Adam(netG.parameters(), lr=params.lr_gen, betas=(params.beta1, params.beta2))
+    def setup_optimizer(self,params,netD,netG,global_rank):
+        if global_rank > 0:
+
+            # workers use the extrapolation step
+            distStep = params.lr_dis*params.extrap2stepRatio
+            genStep = params.lr_gen*params.extrap2stepRatio
         else:
-            self.optimizerD = optim.SGD(netD.parameters(), lr=params.lr_dis)
-            self.optimizerG = optim.SGD(netG.parameters(), lr=params.lr_gen)
+            #master uses update step
+            distStep = params.lr_dis
+            genStep = params.lr_gen
+
+        if params.adam_updates:
+            self.optimizerD = optim.Adam(netD.parameters(), lr=distStep, betas=(params.beta1, params.beta2))
+            self.optimizerG = optim.Adam(netG.parameters(), lr=genStep, betas=(params.beta1, params.beta2))
+        else:
+            self.optimizerD = optim.SGD(netD.parameters(), lr=distStep)
+            self.optimizerG = optim.SGD(netG.parameters(), lr=genStep)
+
+    def setup_optimizer_rg(self, params, netD, netG):
+        # in reuse-gradients version, only the master has an optimizer
+        distStep = params.lr_dis
+        genStep = params.lr_gen
+
+        if params.adam_updates:
+            self.optimizerD = OPTIM_SPS_Adam_P(netD.parameters(), lr_step=distStep,
+                                               lr_extrap = distStep*params.extrap2stepRatio,
+                                               betas=(params.beta1, params.beta2))
+            self.optimizerG = OPTIM_SPS_Adam_P(netG.parameters(), lr_step=genStep,
+                                               lr_extrap=genStep * params.extrap2stepRatio,
+                                               betas=(params.beta1, params.beta2))
+        else:
+            self.optimizerD = OPTIM_SPS_Grad_P(netD.parameters(), lr_step=distStep,
+                                               lr_extrap = distStep*params.extrap2stepRatio)
+            self.optimizerG = OPTIM_SPS_Grad_P(netG.parameters(), lr_step=genStep,
+                                               lr_extrap=genStep * params.extrap2stepRatio)
+
+
+
 
 
     def get_new_data(self, minibatch):

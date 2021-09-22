@@ -99,7 +99,7 @@ class Method:
         if commLoss:
             D_on_real_data = av_loss(D_on_real_data, b_size)
 
-        return D_on_real_data,errD_real,b_size
+        return D_on_real_data,errD_real,b_size,real_cpu
 
     def dis_fake_batch(self,b_size,nz,sampler_option,netG,netD,loss_type,commLoss=True):
         # simultaneous version...
@@ -248,15 +248,12 @@ class Method:
             ###########################
             ## (1a) Train with all-real batch
             ###########################
-            D_on_real_data, errD_real,b_size = self.dis_real_batch(netD, data, loss_type)
-
-
+            D_on_real_data, errD_real,b_size,real = self.dis_real_batch(netD, data, loss_type)
 
             ############################
             ## (1b) Train with all-fake batch
             ############################
             D_on_fake_data, errD_fake,output,fake = self.dis_fake_batch(b_size, nz, sampler_option, netG, netD, loss_type)
-
 
 
             errD = errD_real + errD_fake

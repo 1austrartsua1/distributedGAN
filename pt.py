@@ -4,6 +4,9 @@ import numpy as np
 import time
 
 
+import itertools
+
+
 #distributed
 import torch.nn.parallel
 import torch.distributed as dist
@@ -58,13 +61,7 @@ def get_method(algo):
     return method
 
 
-
-
-
-
-
-
-params,tune_vals = read_config_file(args.algorithm,pt=True)
+params,tune_vals,params_as_dict = read_config_file(args.algorithm,pt=True)
 if params.set_seed:
     manualSeed = 999
     # manualSeed = random.randint(1, 10000) # use if you want new results
@@ -84,10 +81,17 @@ if starting_point == -1:
 results = read_pickle_file(args.algorithm, args.results,starting_point)
 
 
-
+args.tuning_variables = []
+totalSettings = 1
+numVars = 0
+tuningVarListOLists = []
 for key in tune_vals:
-    args.tuning_variable = key
-    break
+    args.tuning_variables.append(key)
+    totalSettings *= len(tune_vals[key])
+    numVars += 1
+    tuningVarListOLists.append(tune_vals[key])
+
+tuningIter = itertools.product(*tuningVarListOLists)
 
 def main():
     t_pt = time.time()
@@ -100,7 +104,6 @@ def main():
 
     if global_rank==0:
         print("parameter tuning")
-        print(f"tuning variable: {args.tuning_variable}")
         print('pytorch version : ', torch.__version__)
         print('WORLD SIZE:', world_size)
         print('The number of nodes : ', node_num)
@@ -124,13 +127,13 @@ def main():
         results['distributed_backend']=args.distributed_backend
         results['moreFilters']=args.moreFilters
         results['num_epochs']=args.num_epochs
+        results['paramsListOfLists'] = tuningVarListOLists
 
 
 
-    tuneVarVals = tune_vals[args.tuning_variable]
-    print(f"starting at starting point: {starting_point+1} / {len(tuneVarVals)}")
-    results['tuneVarVals'] = tuneVarVals
-    results['tuning_variable'] = args.tuning_variable
+    print(f"starting at starting point: {starting_point+1} / {totalSettings}")
+
+
 
     netG,netD,nz = get_models(args.which_model,args.moreFilters)
     dataset = get_data(args.which_data)
@@ -145,21 +148,29 @@ def main():
 
     args.paramTuning = True
 
-    for i in range(starting_point,len(tuneVarVals)):
+    #for i in range(starting_point,totalSettings):
+    i = -1
+    for settings in tuningIter:
+        print(settings)
+        i += 1
+        if i < starting_point:
+            continue
         method = get_method(args.algorithm)
-        tuneVal = tuneVarVals[i]
+
         netG, netD, nz = get_models(args.which_model, args.moreFilters)
         dataset = get_data(args.which_data)
 
-        if args.tuning_variable == "gamma":
-            params.gamma = tuneVal
-        elif args.tuning_variable == "lr_dis":
-            params.lr_dis = tuneVal
-            params.lr_gen = 10.0*tuneVal
+        j = 0
+        for variable in args.tuning_variables:
+            params_as_dict[variable] = settings[j]
+            j+= 1
 
-        print(f"\n\n starting tuning val {tuneVal} for {args.tuning_variable}...\n\n")
+        params_as_dict['lr_gen'] = 10.0*params_as_dict['lr_dis']
 
-        args.tuneVal = tuneVal
+        params = argparse.Namespace(**params_as_dict)
+        args.tuneVal = i
+
+        print(f"\n\n starting tuning setting {i+1} / {totalSettings}...\n\n")
 
         method.main(global_rank,local_rank,world_size,netG,netD,
                 dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,
@@ -169,10 +180,6 @@ def main():
 
         if global_rank==0:
             write_to_progress_file(args.algorithm, args.results, i+1)
-
-
-        
-
 
     if global_rank==0:
         t_pt = time.time()-t_pt
