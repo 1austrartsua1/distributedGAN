@@ -37,12 +37,15 @@ class Chunker:
     # individually. This makes code simpler, especially for async, as you only need
     # to keep one request object for the buffer rather than a list for all param tensors
     # Also may improve speed as there is less overhead for the communication.
-    def __init__(self,net,world_size,isMaster,backend="mpi",groups = None, global_rank = -1):
+    def __init__(self,net,world_size,isMaster,backend="mpi",groups = None, global_rank = -1,cpu_mode=False):
         ln = 0
         # work out size of the buffer
         for param in net.parameters():
             ln += np.prod(param.shape)
-        self.buffer = torch.empty(ln,requires_grad=False).cuda()
+
+        self.buffer = torch.empty(ln,requires_grad=False)
+        if not cpu_mode:
+            self.buffer = self.buffer.cuda()
 
         self.net = net
 
@@ -51,7 +54,9 @@ class Chunker:
             self.grad_buffers = [self.buffer.data.clone() for i in range(world_size-1)]
 
         else:
-            self.gradbuffer = torch.empty(ln, requires_grad=False).cuda()
+            self.gradbuffer = torch.empty(ln, requires_grad=False)
+            if not cpu_mode:
+                self.gradbuffer = self.gradbuffer.cuda()
 
         self.backend = backend
         self.groups = groups

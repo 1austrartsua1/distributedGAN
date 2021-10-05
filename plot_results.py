@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+
 def print_a_res(file):
     with open('results/'+file, 'rb') as handle:
         res = pickle.load(handle)
@@ -170,9 +171,11 @@ if __name__ == "__main__1":
 
 
 
-listOfAlgs = ["extragrad/eg1",
-              "asyncEG/FBFp2",
-              "asyncEG/FBFp8_ptedLR"]
+listOfAlgs = [
+"extragrad/eg2GP",
+"asyncEG/SPS2_GP",
+"asyncEG/SPSp8_GP",
+              ]
 
 for alg in listOfAlgs:
     print_a_res(alg)

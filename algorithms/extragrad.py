@@ -29,7 +29,7 @@ class Extragrad(TwoForwardStep):
 
         return optimizerD,optimizerG
 
-    def optimizer_step(self,optimizerG,optimizerD,netD,netG,clip_amount):
+    def optimizer_step(self,optimizerG,optimizerD,netD,netG,clip_amount,gradient_penalty):
 
         if self.forward_steps%2 == 0:
             #extrapolation
@@ -45,11 +45,11 @@ class Extragrad(TwoForwardStep):
             optimizerD.step()
 
 
-
-
         # clip the discriminator tensors
         # for extragradient, clip after both extrapolate() and the step()
-        clip(netD,clip_amount)
+        if gradient_penalty == 0:
+            clip(netD,clip_amount)
+
         for p in netD.parameters():
             p.requires_grad = True
 

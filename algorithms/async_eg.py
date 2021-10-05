@@ -27,12 +27,13 @@ def print_some(thing):
         print(thing)
         sys.stdout = original_stdout  # Reset the standard output to its original value
 
-print_some = print
+#print_some = print
 
 
 class AsyncEG(Extragrad):
     def __init__(self):
         super(Extragrad,self).__init__()
+
 
     def print_net(self):
 
@@ -43,6 +44,7 @@ class AsyncEG(Extragrad):
 
         for p in self.netD.parameters():
             norms += torch.norm(p)**2
+
 
         print_some(f"net norm {norms}")
 
@@ -110,6 +112,9 @@ class AsyncEG(Extragrad):
         self.args = args
         self.params = params
 
+
+
+
         self.groups = [None]
         if args.distributed_backend == 'nccl':
             for i in range(1, world_size):
@@ -118,17 +123,32 @@ class AsyncEG(Extragrad):
 
         self.dt_string, tstart, self.num_iterations = self.main_preamble(params, results, global_rank)
 
-        torch.cuda.set_device(local_rank)
+        if not self.params.cpu_mode:
+            torch.cuda.set_device(local_rank)
+            self.device = None
 
-        self.CONTINUE = torch.tensor([1]).cuda()
-        self.FINISH = torch.tensor([0]).cuda()
-        self.continue_flag = torch.tensor([-1]).cuda()
+        self.CONTINUE = torch.tensor([1])
+        self.FINISH = torch.tensor([0])
+        self.continue_flag = torch.tensor([-1])
 
-        # send the generator weights to GPU
-        self.netG = netG.cuda()
-        self.netD = netD.cuda()
+        if not self.params.cpu_mode:
+            self.CONTINUE = self.CONTINUE.cuda(self.device)
+            self.FINISH = self.FINISH.cuda(self.device)
+            self.continue_flag = self.continue_flag.cuda(self.device)
+
+        
+
+        self.netG = netG
+        self.netD = netD
+        
+        if not self.params.cpu_mode:
+            # send the generator weights to GPU
+            self.netG = self.netG.cuda(self.device)
+            self.netD = self.netD.cuda(self.device)
 
         # synchronize the model weights across devices
+        
+
         av_param(self.netG, world_size)
         av_param(self.netD, world_size)
 
@@ -141,8 +161,8 @@ class AsyncEG(Extragrad):
         # Also may improve speed as there is less overhead for the communication.
 
         isMaster = (global_rank==0)
-        self.ch_G = CH(netG,world_size,isMaster,args.distributed_backend,self.groups,global_rank)
-        self.ch_D = CH(netD,world_size,isMaster,args.distributed_backend,self.groups,global_rank)
+        self.ch_G = CH(netG,world_size,isMaster,args.distributed_backend,self.groups,global_rank,self.params.cpu_mode)
+        self.ch_D = CH(netD,world_size,isMaster,args.distributed_backend,self.groups,global_rank,self.params.cpu_mode)
 
         # Setup optimizers for both G and D
         if params.reuse_gradients and (global_rank == 0):
@@ -155,11 +175,17 @@ class AsyncEG(Extragrad):
             dl = torch.utils.data.DataLoader(self.dataset)
             data_loader_iter = iter(dl)
             data = next(data_loader_iter)
-            data = data[0].cuda()
+            data = data[0]
+            if not self.params.cpu_mode:
+                data = data.cuda(self.device)
             outD = torch.sum(0*self.netD(data))
             outD.backward()
 
-            noise = sampler(10, self.nz, self.sampler_option).cuda()
+
+
+            noise = sampler(10, self.nz, self.sampler_option)
+            if not self.params.cpu_mode:
+                noise = noise.cuda(self.device)
 
             # Generate fake image batch with G
             fake = netG(noise)
@@ -192,24 +218,28 @@ class AsyncEG(Extragrad):
         ## (1a) Train with all-real batch
         ###########################
 
-        D_on_real_data, errD_real, b_size, real = self.dis_real_batch(self.netD, data, self.loss_type,commLoss=False)
+        D_on_real_data, errD_real, b_size, real = self.dis_real_batch(self.netD, data, self.loss_type,self.params.cpu_mode)
 
         ############################
         ## (1b) Train with all-fake batch
         ############################
+
         D_on_fake_data, errD_fake, output, fake = self.dis_fake_batch(b_size, self.nz, self.sampler_option, self.netG,
-                                                                      self.netD,
-                                                                      self.loss_type,commLoss=False)
+                                                                      self.netD,self.loss_type,real=None,grad_penalty=None,cpu_mode=self.params.cpu_mode)
 
 
-        errD = errD_real + errD_fake
+
+        errD = self.get_grad_penalty(errD_real, errD_fake, self.params.gradient_penalty, self.netD, real, fake)
+        self.performDiscBackward(errD)
+
+
 
 
         ############################
         # (2) Calculate G network gradients
         ###########################
         errG = self.gen_grads(self.netG, self.netD, self.loss_type, b_size, output, None, None, None,
-                              None, None,commLoss=False)
+                              None, None)
 
 
         # need to set requires_grad back to True for discriminator after it was set to False in the gen_grads function
@@ -223,6 +253,8 @@ class AsyncEG(Extragrad):
         minibatch = Minibatch(self.dataloader)
         self.epoch = 0
         loopNumber = 0
+        tavGrad = 0.0
+
         while True:
             loopNumber += 1
 
@@ -231,15 +263,17 @@ class AsyncEG(Extragrad):
             data, newEpoch = self.get_new_data(minibatch)
 
             # calculate disc and generator gradients
+            t = time.time()
             self.worker_get_grads(data)
+            tavGrad += time.time() - t 
+
             ngrads += 1
 
             # isend gradient to master
             norms = self.ch_G.grad_isend()
             norms += self.ch_D.grad_isend()
-            # print(f"buffer norm during isend {norms}")
-            if useSleepHack:
-                time.sleep(1e-2)
+            #print(f"buffer norm during isend {norms}")
+
 
             # simply wait until master has recved grads.
             self.ch_G.grad_wait()
@@ -255,6 +289,7 @@ class AsyncEG(Extragrad):
             self.ch_G.param_recv()
             self.ch_D.param_recv()
 
+        print(f"av time to get gradients {tavGrad/loopNumber}")
 
 
     def worker_loop(self):
@@ -268,6 +303,10 @@ class AsyncEG(Extragrad):
         minibatch = Minibatch(self.dataloader)
         self.epoch = 0
         loopNumber = 0
+
+        tavGetGrads = 0.0
+        tparamRecv = 0.0
+        tWorkerWaitAv = 0.0
         while True:
             loopNumber += 1
 
@@ -276,7 +315,10 @@ class AsyncEG(Extragrad):
             data, newEpoch = self.get_new_data(minibatch)
 
             # calculate disc and generator gradients
+            t = time.time()
             self.worker_get_grads(data)
+            tavGetGrads += time.time() - t
+
 
             # perform an update using these gradients
             # Update G
@@ -286,15 +328,17 @@ class AsyncEG(Extragrad):
             self.optimizerD.step()
 
             # clip params here
-            clip(self.netD, self.clip_amount)
+            if self.params.gradient_penalty == 0.0:
+                clip(self.netD, self.clip_amount)
 
             # get new data
             if self.params.stale==False:
                 data, newEpoch = self.get_new_data(minibatch)
 
             # once again, calculate disc and generator gradients
-
+            t = time.time()
             self.worker_get_grads(data)
+            tavGetGrads += time.time() - t
 
 
 
@@ -314,14 +358,14 @@ class AsyncEG(Extragrad):
             norms = self.ch_G.grad_isend()
             norms += self.ch_D.grad_isend()
             #print(f"buffer norm during isend {norms}")
-            if useSleepHack:
-                time.sleep(1e-2)
 
 
 
 
+            t = time.time()
             self.ch_G.grad_wait()
             self.ch_D.grad_wait()
+            tWorkerWaitAv += time.time() - t
 
 
             ngrads += 1
@@ -330,13 +374,17 @@ class AsyncEG(Extragrad):
             if self.continue_flag[0] == 0:
                 break
             # get updates params from master
-
+            t = time.time()
             self.ch_G.param_recv()
             self.ch_D.param_recv()
+            tparamRecv += time.time() - t
 
 
 
 
+        print(f"av time to get gradients {tavGetGrads/(2*loopNumber)}")
+        print(f"av time worker takes to recv params {tparamRecv/loopNumber}")
+        print(f"av time worker waits for gradients to be sent to master {tWorkerWaitAv/loopNumber}")
 
         #print_some(f"worker {self.global_rank} exiting after computing {ngrads} gradients")
 
@@ -361,7 +409,6 @@ class AsyncEG(Extragrad):
         # copy workeri gradients accross to netG and netD
         # perform a step on optimizerG and optimizerD
 
-
         norms = self.ch_G.copy_grad(workeri)
         norms += self.ch_D.copy_grad(workeri)
 
@@ -375,7 +422,8 @@ class AsyncEG(Extragrad):
 
 
         # clip params here
-        clip(self.netD, self.clip_amount)
+        if self.params.gradient_penalty == 0.0:
+            clip(self.netD, self.clip_amount)
 
         # for reuse_gradient version, now do another update
         # but save the current params
@@ -388,7 +436,7 @@ class AsyncEG(Extragrad):
             self.optimizerD.step(updateType="extrap")
 
             # optional second clip
-            if self.params.second_clip:
+            if self.params.second_clip and (self.params.gradient_penalty == 0.0):
                 clip(self.netD, self.clip_amount)
 
 
@@ -415,8 +463,7 @@ class AsyncEG(Extragrad):
         #print_some(f"master entering loop")
         #self.print_net()
 
-
-
+        tmaster_up = 0.0
         tepoch = time.time()
         while True:
             if self.ch_G.grad_ready(i) and self.ch_D.grad_ready(i):
@@ -424,7 +471,10 @@ class AsyncEG(Extragrad):
                 norms = self.ch_G.getGradBufferNorm(i+1)
                 norms += self.ch_D.getGradBufferNorm(i+1)
 
+                t = time.time()
                 self.master_update(i)
+                tmaster_up += time.time() - t
+
 
                 updates += 1
                 numGrads += batchsize + batchsize*(1-self.params.stale)*(1-self.params.reuse_gradients)
@@ -466,6 +516,9 @@ class AsyncEG(Extragrad):
 
         tepoch = time.time()-tepoch
         ttot = time.time() - tstart
+
+        print(f"av time for master update {tmaster_up/updates}")
+
         progressMeter.record((1+int(self.params.reuse_gradients==False))*updates,numEpochs,-1,-1,
                              self.netG,final=True,workerOrder = worker_order)
         progressMeter.save(ttot,tepoch,final=True,paramTuneVal=self.args.tuneVal)

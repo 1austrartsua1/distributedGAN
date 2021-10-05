@@ -28,7 +28,6 @@ parser.add_argument('--which_data',choices=['cifar','celebra','random'],default=
 parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper","pytorch_tutorial"],default="dcgan_fbf_paper")
 parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan")
 parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"],default="fbf_paper")
-parser.add_argument('--clip_amount',default=0.01,type=float)
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=50)
 parser.add_argument('--chunk_reduce', action='store_true')
@@ -112,7 +111,6 @@ def main():
         print(f"which model: {args.which_model}")
         print(f"loss type: {args.loss_type}")
         print(f"sampler option: {args.sampler_option}")
-        print(f"clip amount: {args.clip_amount}")
         print(f"algorithm: {args.algorithm}")
         print(f"distributed backend: {args.distributed_backend}")
         print(f"moreFilters: {args.moreFilters}")
@@ -173,7 +171,7 @@ def main():
         print(f"\n\n starting tuning setting {i+1} / {totalSettings}...\n\n")
 
         method.main(global_rank,local_rank,world_size,netG,netD,
-                dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,
+                dataset,nz,args.loss_type,args.sampler_option,params.clip_amount,
                 results,args,params)
 
 

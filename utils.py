@@ -402,6 +402,7 @@ class ProgressMeter:
         self.G_losses.append(errG)
         self.D_losses.append(errD)
 
+
     def save(self,ttot,tepoch,final=False,paramTuneVal=None,reduceFracAv=-1):
         if (not final) and self.paramTuning:
             return
@@ -421,6 +422,7 @@ class ProgressMeter:
             self.results['num_epochs']=self.num_epochs
             self.results['G_losses']=self.G_losses
             self.results['D_losses']=self.D_losses
+
             self.results['epochStamps']=self.epochStamps
             self.results['total_running_time']=ttot
             self.results['reduceFracAv'] = reduceFracAv

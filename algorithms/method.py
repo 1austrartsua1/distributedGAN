@@ -73,7 +73,7 @@ class Method:
         # must overwrite
         pass
 
-    def optimizer_step(self,optimizerG,optimizerD,netD,netG,clip_amount):
+    def optimizer_step(self,optimizerG,optimizerD,netD,netG,clip_amount,gradient_penalty):
         # must overwrite
         pass
 
@@ -81,32 +81,40 @@ class Method:
         # must overwrite
         pass
 
-    def dis_real_batch(self,netD,data,loss_type,commLoss=True):
+    def dis_real_batch(self,netD,data,loss_type,cpu_mode=False):
         netD.zero_grad()
         # Format batch
-        real_cpu = data[0].cuda(None, non_blocking=True)
+        real_cpu = data[0]
+        if not cpu_mode:
+            real_cpu = real_cpu.cuda(None, non_blocking=True)
+
+        
         b_size = real_cpu.size(0)
 
         # Forward pass real batch through D
         output = netD(real_cpu).view(-1)
         # Calculate loss on all-real batch
         errD_real = compute_gan_loss(output, loss_type, b_size, "real", "dis")
+
         # Calculate gradients for D in backward pass
-        errD_real.backward()
+        #errD_real.backward()
 
         D_on_real_data = output.sum()
 
-        if commLoss:
-            D_on_real_data = av_loss(D_on_real_data, b_size)
+        #if commLoss:
+        #    D_on_real_data = av_loss(D_on_real_data, b_size)
 
         return D_on_real_data,errD_real,b_size,real_cpu
 
-    def dis_fake_batch(self,b_size,nz,sampler_option,netG,netD,loss_type,commLoss=True):
+    def dis_fake_batch(self,b_size,nz,sampler_option,netG,netD,loss_type,real=None,grad_penalty=None,cpu_mode=False):
         # simultaneous version...
         # alternating version needs to be overloaded
 
         # Generate batch of latent vectors
-        noise = sampler(b_size, nz, sampler_option).cuda()
+        noise = sampler(b_size, nz, sampler_option)
+        if not cpu_mode:
+            noise = noise.cuda()
+            
 
         # Generate fake image batch with G
         fake = netG(noise)
@@ -121,15 +129,13 @@ class Method:
         errD_fake = compute_gan_loss(output, loss_type, b_size, "fake", "dis")
 
         # Calculate the gradients for this batch
-        errD_fake.backward(retain_graph=True)
+        #errD_fake.backward(retain_graph=True)
 
         D_on_fake_data = output.sum()
-        if commLoss:
-            D_on_fake_data = av_loss(D_on_fake_data, b_size)
 
         return D_on_fake_data, errD_fake,output,fake
 
-    def gen_grads(self,netG,netD,loss_type,b_size,output,optimizerD,optimizerG,world_size,clip_amount,fake,commLoss=True):
+    def gen_grads(self,netG,netD,loss_type,b_size,output,optimizerD,optimizerG,world_size,clip_amount,fake):
         netG.zero_grad()
 
         for p in netG.parameters():
@@ -142,8 +148,6 @@ class Method:
         errG = compute_gan_loss(output, loss_type, b_size, "real", "gen")
         # Calculate gradients for G
         errG.backward()
-        if commLoss:
-            errG = av_loss(errG, 1.0)
 
         return errG
 
@@ -168,6 +172,25 @@ class Method:
             print("\n\n")
 
         return dt_string,tstart,num_iterations
+
+    def get_grad_penalty(self,errD_real, errD_fake, gradient_penalty, netD, real, fake):
+        errD = errD_real + errD_fake
+        if gradient_penalty > 0.0:
+            penalty = netD.get_penalty(real.data, fake.data)
+            errD += gradient_penalty * penalty
+        return errD
+
+    def performDiscBackward(self,errD):
+        errD.backward(retain_graph=True)
+
+    def performDiscRealBackward(self,errD_real):
+        # perform backward pass for discrimator on real data
+        # for extragrad, we don't do this here as we do the backward pass
+        # on both real and fake data together
+        # but for GDA we do them separetely
+        # GDA will overwrite this function
+        pass
+
 
     def main(self,global_rank, local_rank, world_size, netG, netD,
                 dataset, nz, loss_type, sampler_option, clip_amount, results
@@ -250,15 +273,17 @@ class Method:
             ###########################
             D_on_real_data, errD_real,b_size,real = self.dis_real_batch(netD, data, loss_type)
 
+            self.performDiscRealBackward(errD_real)
+
             ############################
             ## (1b) Train with all-fake batch
             ############################
-            D_on_fake_data, errD_fake,output,fake = self.dis_fake_batch(b_size, nz, sampler_option, netG, netD, loss_type)
+            D_on_fake_data, errD_fake,output,fake = self.dis_fake_batch(b_size, nz, sampler_option, netG, netD,
+                                                                        loss_type,real,params.gradient_penalty)
 
+            errD = self.get_grad_penalty(errD_real, errD_fake, params.gradient_penalty, netD, real, fake)
 
-            errD = errD_real + errD_fake
-
-            errD = av_loss(errD, 1.0)
+            self.performDiscBackward(errD)
 
             ############################
             # (2) Calculate G network gradients
@@ -272,7 +297,7 @@ class Method:
             self.communicate(netD,netG,world_size,ch_D,ch_G,args)
 
 
-            self.optimizer_step(optimizerG, optimizerD, netD, netG, clip_amount)
+            self.optimizer_step(optimizerG, optimizerD, netD, netG, clip_amount,params.gradient_penalty)
 
             #if (global_rank==0) and (iteration % 2 == 1):
             #    # update step:
@@ -286,7 +311,8 @@ class Method:
             if (global_rank==0) and newEpoch:
                 tepoch = time.time()-tepoch
                 if (self.epoch+1) % params.IS_eval_freq == 0:
-                    progressMeter.record(self.forward_steps,self.epoch,errD,errG,netG)
+
+                    progressMeter.record(self.forward_steps,self.epoch,errD.item(),errG.item(),netG)
                     ttot = time.time() - tstart
                     progressMeter.save(ttot,tepoch)
                 print(f"epoch {self.epoch} time = {tepoch}")
@@ -299,7 +325,7 @@ class Method:
         if global_rank == 0:
             tepoch = time.time()-tepoch
             ttot = time.time() - tstart
-            progressMeter.record(self.forward_steps,self.epoch,errD,errG,netG,final=True)
+            progressMeter.record(self.forward_steps,self.epoch,errD.item(),errG.item(),netG,final=True)
             progressMeter.save(ttot,tepoch,final=True,paramTuneVal=args.tuneVal)
 
 

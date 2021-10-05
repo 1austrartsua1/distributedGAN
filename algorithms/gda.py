@@ -18,7 +18,22 @@ class GDA(OneForwardStep):
         optimizerG = optim.Adam(netG.parameters(), lr=params.lr_gen, betas=(params.beta1, params.beta2))
         return optimizerD,optimizerG
 
-    def dis_fake_batch(self,b_size,nz,sampler_option,netG,netD,loss_type):
+    def performDiscBackward(self, errD_real):
+        pass
+
+    def get_grad_penalty(self, errD_real, errD_fake, gradient_penalty, netD, real, fake):
+        return errD_real+errD_fake
+
+    def performDiscRealBackward(self,errD_real):
+        # perform backward pass for discrimator on real data
+        # for extragrad, we don't do this here as we do the backward pass
+        # on both real and fake data together
+        # but for GDA we do them separetely
+        # GDA will overwrite this function
+        errD_real.backward()
+
+    def dis_fake_batch(self,b_size,nz,sampler_option,netG,netD,loss_type,
+                       real=None,gradient_penalty=0.0):
         noise = sampler(b_size, nz, sampler_option).cuda()
 
         # Generate fake image batch with G
@@ -34,6 +49,13 @@ class GDA(OneForwardStep):
 
         # Calculate D's loss on the all-fake batch
         errD_fake = compute_gan_loss(output, loss_type, b_size, "fake", "dis")
+
+        # for GDA it is more convenient to compute the gradient penalty here within
+        # dis_fake_batch
+        if gradient_penalty > 0.0:
+            penalty = netD.get_penalty(real.data, fake.data)
+            errD_fake += gradient_penalty * penalty
+
 
         # Calculate the gradients for this batch
         if self.simult:
@@ -78,7 +100,7 @@ class GDA(OneForwardStep):
         # Calculate gradients for G
         errG.backward()
 
-        errG = av_loss(errG, 1.0)
+        #errG = av_loss(errG, 1.0)
 
         # average G's gradients across workers
         av_grad(netG, world_size)

@@ -27,7 +27,6 @@ parser.add_argument('--which_model',choices=["dcgan_fbf_paper","resnet_fbf_paper
                     default="dcgan_fbf_paper",help='default (dcgan_fbf_paper)')
 parser.add_argument('--loss_type',choices=["BCE", "wgan"],default="wgan",help='default (wgan)')
 parser.add_argument('--sampler_option',choices=["pytorch_tutorial", "fbf_paper"],default="fbf_paper")
-parser.add_argument('--clip_amount',default=0.01,type=float,help='default (0.01)')
 parser.add_argument('--moreFilters', action='store_true')
 parser.add_argument('--num_epochs', type=int,default=600)
 parser.add_argument('--chunk_reduce', action='store_true')
@@ -71,7 +70,8 @@ else:
 
 global_rank, world_size = init_workers(args.distributed_backend)
 
-ranks_per_node = torch.cuda.device_count()
+#ranks_per_node = torch.cuda.device_count()
+ranks_per_node=1
 local_rank = global_rank % ranks_per_node
 node_num = world_size // ranks_per_node
 
@@ -81,12 +81,12 @@ if global_rank==0:
     print('pytorch version : ', torch.__version__)
     print('WORLD SIZE:', world_size)
     print('The number of nodes : ', node_num)
-    print('Device Count : ', torch.cuda.device_count())
+    #print('Device Count : ', torch.cuda.device_count())
     print(f"which data: {args.which_data}")
     print(f"which model: {args.which_model}")
     print(f"loss type: {args.loss_type}")
     print(f"sampler option: {args.sampler_option}")
-    print(f"clip amount: {args.clip_amount}")
+    print(f"clip amount: {params.clip_amount}")
     print(f"algorithm: {args.algorithm}")
     print(f"distributed backend: {args.distributed_backend}")
     print(f"moreFilters: {args.moreFilters}")
@@ -124,7 +124,7 @@ if global_rank == 0:
 
 
 method.main(global_rank,local_rank,world_size,netG,netD,
-            dataset,nz,args.loss_type,args.sampler_option,args.clip_amount,results,
+            dataset,nz,args.loss_type,args.sampler_option,params.clip_amount,results,
             args,params)
 tmainGan = time.time() - tmainGan
 if global_rank == 0:
